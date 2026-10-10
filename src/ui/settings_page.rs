@@ -34,7 +34,10 @@ impl JoystickManagerApp {
             ui.add_space(6.0);
             let mut start_with_windows = self.autostart_registered;
             if ui
-                .checkbox(&mut start_with_windows, "Start with Windows (runs as administrator)")
+                .checkbox(
+                    &mut start_with_windows,
+                    tr("Start with Windows (runs as administrator)"),
+                )
                 .changed()
             {
                 self.change_autostart(start_with_windows);
@@ -125,7 +128,7 @@ impl JoystickManagerApp {
 }
 
 fn yes_or_no(value: bool) -> String {
-    if value { "Yes".into() } else { "No".into() }
+    tr(if value { "Yes" } else { "No" }).to_owned()
 }
 
 impl JoystickManagerApp {

@@ -97,7 +97,10 @@ impl JoystickManagerApp {
             ("Vendor:Product", definition.vendor_and_product_label()),
             (
                 "Serial number",
-                device.serial_number.clone().unwrap_or_else(|| "Not reported".into()),
+                device
+                    .serial_number
+                    .clone()
+                    .unwrap_or_else(|| tr("Not reported").to_owned()),
             ),
             ("USB interfaces", device.interfaces.len().to_string()),
             ("Axes", snapshot.axis_values.len().to_string()),
@@ -106,17 +109,17 @@ impl JoystickManagerApp {
             (
                 "RGB lighting",
                 if definition.supports_rgb_lighting {
-                    "Yes, one zone".into()
+                    tr("Yes, one zone").into()
                 } else {
-                    "No".into()
+                    tr("No").into()
                 },
             ),
             (
                 "Drivers signed",
                 if device.all_drivers_signed() {
-                    "All".into()
+                    tr("All").into()
                 } else {
-                    "Not all".into()
+                    tr("Not all").into()
                 },
             ),
         ];
@@ -372,7 +375,8 @@ fn show_not_connected_card(ui: &mut Ui, definition: &KnownDevice) {
 fn show_driver_package_card(ui: &mut Ui, device: &ConnectedDevice) {
     let release = vendor_release_for(device.definition.kind);
     let health = evaluate_driver_health(device);
-    let installed_package = installed_package_version(device.definition.kind).unwrap_or_else(|| "Not installed".into());
+    let installed_package =
+        installed_package_version(device.definition.kind).unwrap_or_else(|| tr("Not installed").to_owned());
     card(ui, |ui| {
         ui.horizontal(|ui| {
             caption(ui, "Driver package");
@@ -385,7 +389,7 @@ fn show_driver_package_card(ui: &mut Ui, device: &ConnectedDevice) {
         ui.add_space(4.0);
         let latest_text = match (release.latest_package_version, release.release_date) {
             (Some(version), Some(date)) => format!("{version} · {date}"),
-            _ => "Not published".to_owned(),
+            _ => tr("Not published").to_owned(),
         };
         key_value_grid(
             ui,

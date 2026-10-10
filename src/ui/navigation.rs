@@ -109,7 +109,7 @@ fn show_active_profile_details(
     ui.label(RichText::new(profile_name).font(semibold_font(15.0)));
     ui.horizontal(|ui| {
         muted_text(ui, "Lighting ·");
-        ui.label(RichText::new(lighting_status.0).size(13.5).color(lighting_status.1));
+        ui.label(RichText::new(tr(lighting_status.0)).size(13.5).color(lighting_status.1));
     });
 }
 

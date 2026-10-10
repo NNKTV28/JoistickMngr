@@ -97,7 +97,9 @@ impl JoystickManagerApp {
                 muted_text(ui, "Connect a device to see its axes move here.");
                 return;
             }
+            let row_width = ui.available_width();
             ui.horizontal_wrapped(|ui| {
+                ui.set_max_width(row_width);
                 ui.spacing_mut().item_spacing.x = 26.0;
                 for device in connected_devices {
                     self.show_axis_meters_for(ui, device.definition);
@@ -206,15 +208,15 @@ fn build_device_facts(
 ) -> Vec<(&'static str, String)> {
     let serial_number = connected_device
         .and_then(|device| device.serial_number.clone())
-        .unwrap_or_else(|| "Not reported".into());
+        .unwrap_or_else(|| tr("Not reported").to_owned());
     let driver = connected_device
         .and_then(|device| device.game_controller_interface())
         .map(|interface| format!("{} {}", interface.driver_provider, interface.driver_version))
         .unwrap_or_else(|| "—".into());
     let lighting_text = match (definition.supports_rgb_lighting, lighting) {
-        (false, _) => "None".to_owned(),
+        (false, _) => tr("None").to_owned(),
         (true, Some(setting)) => format!("{} · {}%", setting.color.to_hex_string(), setting.brightness_percent),
-        (true, None) => "Not set".to_owned(),
+        (true, None) => tr("Not set").to_owned(),
     };
     vec![
         ("VID:PID", definition.vendor_and_product_label()),

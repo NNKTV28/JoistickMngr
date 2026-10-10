@@ -3,7 +3,8 @@
 //! Checks the latest release, downloads its installer, verifies the SHA-256 checksum GitHub publishes
 //! for it, then runs it silently. The installer closes this app, updates it and starts it again.
 
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -17,6 +18,7 @@ const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/NNKTV28/JoistickM
 const INSTALLER_NAME_PREFIX: &str = "JoystickManager-Setup-";
 const SHA256_DIGEST_PREFIX: &str = "sha256:";
 const AUTOMATIC_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+const UPDATES_FOLDER_NAME: &str = "updates";
 const USER_AGENT: &str = "JoystickManager-updater (+https://nikicoding.com)";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -148,8 +150,8 @@ fn download_and_run_installer(update: &AvailableUpdate) -> anyhow::Result<()> {
         sha256_hex(&installer_bytes) == update.installer_sha256,
         "the downloaded installer does not match the published checksum"
     );
-    let installer_path = installer_download_path(&update.version);
-    std::fs::write(&installer_path, installer_bytes)?;
+    let installer_path = installer_download_path(&update.version)?;
+    save_as_new_file(&installer_path, &installer_bytes)?;
     run_installer_silently(&installer_path)?;
     std::process::exit(0);
 }
@@ -158,12 +160,31 @@ fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-fn installer_download_path(version: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("{INSTALLER_NAME_PREFIX}{version}.exe"))
+/// The installer runs with administrator rights, so it is saved inside the app's own folder
+/// (under Program Files), where only administrators can write. A file in %TEMP% could be swapped
+/// by any program between the checksum check and the launch.
+fn installer_download_path(version: &str) -> anyhow::Result<PathBuf> {
+    let application_folder = std::env::current_exe()?
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("the application folder is unknown"))?
+        .to_path_buf();
+    let updates_folder = application_folder.join(UPDATES_FOLDER_NAME);
+    std::fs::create_dir_all(&updates_folder)?;
+    Ok(updates_folder.join(format!("{INSTALLER_NAME_PREFIX}{version}.exe")))
+}
+
+/// Replaces any leftover file and writes the new one, refusing to reuse a file another process created.
+fn save_as_new_file(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(contents)?;
+    Ok(())
 }
 
 /// The app already runs elevated, so the installer starts without another administrator prompt.
-fn run_installer_silently(installer_path: &PathBuf) -> anyhow::Result<()> {
+fn run_installer_silently(installer_path: &Path) -> anyhow::Result<()> {
     Command::new(installer_path)
         .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"])
         .spawn()?;

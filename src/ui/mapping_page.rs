@@ -254,11 +254,6 @@ impl JoystickManagerApp {
                 } else {
                     primary_button(ui, "Turn mapping on").clicked()
                 };
-                if mapping_enabled {
-                    status_pill(ui, "Mapping on", Tone::Success);
-                } else {
-                    status_pill(ui, "Mapping off", Tone::Neutral);
-                }
             },
         );
         if toggle_clicked {

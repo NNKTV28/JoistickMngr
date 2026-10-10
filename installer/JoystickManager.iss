@@ -68,6 +68,10 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 ; Silent installs come from the in-app updater: start the updated app again.
 Filename: "{app}\{#AppExeName}"; Flags: nowait runascurrentuser; Check: WizardSilent
 
+[UninstallDelete]
+; Installers downloaded by the in-app updater.
+Type: filesandordirs; Name: "{app}\updates"
+
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "StopApplication"
 Filename: "{app}\{#AppExeName}"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveAutostart"
