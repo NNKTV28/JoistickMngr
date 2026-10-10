@@ -6,6 +6,7 @@ use crate::app::{JoystickManagerApp, Page};
 use crate::device_scanner::{ConnectedDevice, ScanState};
 use crate::driver_status::{DriverHealth, evaluate_driver_health};
 use crate::known_devices::{DeviceKind, KnownDevice};
+use crate::localization::{tr, tr_format};
 use crate::profiles::LightingSetting;
 use crate::ui::widgets::*;
 
@@ -88,7 +89,7 @@ impl JoystickManagerApp {
             ui.horizontal(|ui| {
                 card_title(ui, "Live axes");
                 ui.with_layout(eframe::egui::Layout::right_to_left(eframe::egui::Align::Center), |ui| {
-                    open_tester = ui.link("Open input tester").clicked();
+                    open_tester = ui.link(tr("Open input tester")).clicked();
                 });
             });
             ui.add_space(8.0);
@@ -126,18 +127,17 @@ impl JoystickManagerApp {
 
 fn describe_scan_state(scan_state: &ScanState, connected_devices: &[ConnectedDevice]) -> String {
     match scan_state {
-        ScanState::NotScannedYet => "Looking for devices…".to_owned(),
-        ScanState::Failed(error) => format!("Device scan failed: {error}"),
+        ScanState::NotScannedYet => tr("Looking for devices…").to_owned(),
+        ScanState::Failed(error) => tr_format("Device scan failed: {}", &[error]),
         ScanState::Scanned(_) => {
             let signed_note = if connected_devices.iter().all(ConnectedDevice::all_drivers_signed) {
                 "all drivers signed"
             } else {
                 "some drivers are not signed"
             };
-            format!(
-                "{} of {} devices connected · {signed_note}",
-                connected_devices.len(),
-                DeviceKind::ALL.len()
+            tr_format(
+                "{} of {} devices connected · {}",
+                &[&connected_devices.len(), &DeviceKind::ALL.len(), &tr(signed_note)],
             )
         }
     }

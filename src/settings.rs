@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::localization::Language;
 use crate::storage::{application_data_directory, read_json_file, write_json_file};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -18,6 +19,8 @@ pub struct AppSettings {
     pub idle_minutes_before_dimming: u32,
     pub dimmed_brightness_percent: u8,
     pub switch_profiles_for_games: bool,
+    pub language: Language,
+    pub check_for_updates: bool,
     /// Master switch for key, mouse and virtual controller mapping.
     pub mapping_enabled: bool,
     pub active_profile_name: String,
@@ -33,6 +36,8 @@ impl Default for AppSettings {
             idle_minutes_before_dimming: 10,
             dimmed_brightness_percent: 20,
             switch_profiles_for_games: true,
+            language: Language::default(),
+            check_for_updates: true,
             mapping_enabled: false,
             active_profile_name: crate::profiles::DEFAULT_PROFILE_NAME.to_owned(),
         }

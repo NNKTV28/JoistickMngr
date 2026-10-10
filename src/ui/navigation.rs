@@ -5,8 +5,10 @@ use eframe::egui::{self, CornerRadius, Frame, Margin, RichText, Sense, Stroke, U
 use crate::app::{JoystickManagerApp, Page};
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingAvailability;
+use crate::localization::{tr, tr_format};
 use crate::theme::*;
 use crate::ui::widgets::{caption, muted_text, navigation_item};
+use crate::updater::UpdateState;
 
 const ACTIVE_PROFILE_CARD_HEIGHT: f32 = 96.0;
 
@@ -51,8 +53,20 @@ impl JoystickManagerApp {
         self.show_navigation_link(ui, "Profiles", Page::Profiles);
         self.show_navigation_link(ui, "Settings", Page::Settings);
 
+        self.show_update_notice(ui);
         ui.add_space((ui.available_height() - ACTIVE_PROFILE_CARD_HEIGHT).max(12.0));
         self.show_active_profile_card(ui);
+    }
+
+    fn show_update_notice(&mut self, ui: &mut Ui) {
+        let UpdateState::Available(update) = self.services.updater.state() else {
+            return;
+        };
+        ui.add_space(14.0);
+        let label = tr_format("Update {} available", &[&update.version]);
+        if navigation_item(ui, &label, false, Some(ACCENT_AMBER)).clicked() {
+            self.open_page(Page::Settings);
+        }
     }
 
     fn show_navigation_link(&mut self, ui: &mut Ui, label: &str, page: Page) {
@@ -104,7 +118,7 @@ fn show_brand(ui: &mut Ui) {
         let (logo_rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
         paint_crosshair_logo(ui, logo_rect);
         ui.label(
-            RichText::new("JOYSTICK MNGR")
+            RichText::new(tr("JOYSTICK MNGR"))
                 .font(condensed_font(21.0))
                 .extra_letter_spacing(1.5),
         );

@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::localization::{tr, tr_format};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DeviceKind {
     Joystick,
@@ -13,11 +15,12 @@ impl DeviceKind {
     pub const ALL: [DeviceKind; 3] = [DeviceKind::Joystick, DeviceKind::Throttle, DeviceKind::RudderPedals];
 
     pub fn category_label(self) -> &'static str {
-        match self {
+        let english_label = match self {
             DeviceKind::Joystick => "Joystick",
             DeviceKind::Throttle => "Throttle",
             DeviceKind::RudderPedals => "Rudder",
-        }
+        };
+        tr(english_label)
     }
 
     pub fn definition(self) -> &'static KnownDevice {
@@ -60,8 +63,8 @@ impl KnownDevice {
 
     pub fn axis_name(&self, axis_index: usize) -> String {
         match self.axes.get(axis_index) {
-            Some(axis) => axis.name.to_owned(),
-            None => format!("Axis {}", axis_index + 1),
+            Some(axis) => tr(axis.name).to_owned(),
+            None => tr_format("Axis {}", &[&(axis_index + 1)]),
         }
     }
 

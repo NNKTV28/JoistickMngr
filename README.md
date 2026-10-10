@@ -16,11 +16,19 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
   a virtual Xbox or PlayStation (DualShock 4) controller. Mapping reads the devices' HID reports directly and
   reacts to each report the moment it arrives, so it keeps working while a game has focus. The virtual
   controller needs the free [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver.
+- **Layers and analog keys** – the throttle's M1 / M2 / M3 switch and an optional shift button give every
+  control several jobs. An axis can drive a key the way a magnetic keyboard does: the key is pulsed in
+  proportion to how far the axis is pushed.
 - **Profiles** – named setups with lighting, axis tuning and key mapping, activated manually or automatically
   when a game starts. Import and export as JSON.
 - **USB power saving** – turns off the Windows power saving that is a common cause of X56 disconnects.
 - **Tray and start-up** – closes to the notification area, starts with Windows (elevated, via Task Scheduler),
   dims the lights when the PC is idle.
+- **Automatic updates** – new GitHub releases are downloaded, checked against their published SHA-256 checksum
+  and installed silently.
+- **English and Spanish** – the language follows Windows and can be changed in Settings.
+
+See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
 ## Install
 

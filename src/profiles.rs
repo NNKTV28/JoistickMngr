@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::bindings::{InputBinding, VirtualControllerKind};
 use crate::known_devices::DeviceKind;
+use crate::layers::LayerSetup;
 use crate::storage::{application_data_directory, read_json_file, write_json_file};
 
 pub const DEFAULT_PROFILE_NAME: &str = "Default";
@@ -123,6 +124,7 @@ pub struct Profile {
     /// Key, mouse and controller mappings that are active while this profile is in charge.
     pub bindings: Vec<InputBinding>,
     pub virtual_controller: VirtualControllerKind,
+    pub layer_setup: LayerSetup,
 }
 
 impl Default for Profile {
@@ -141,6 +143,7 @@ impl Profile {
             axis_tunings: Vec::new(),
             bindings: Vec::new(),
             virtual_controller: VirtualControllerKind::None,
+            layer_setup: LayerSetup::default(),
         }
     }
 

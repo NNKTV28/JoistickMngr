@@ -14,7 +14,9 @@ mod input_injection;
 mod input_reader;
 mod keyboard_keys;
 mod known_devices;
+mod layers;
 mod lighting;
+mod localization;
 mod mapping_engine;
 mod product_images;
 mod profiles;
@@ -26,7 +28,9 @@ mod theme;
 mod thread_priority;
 mod tray;
 mod ui;
+mod updater;
 mod usb_power;
+mod version_numbers;
 mod virtual_gamepad;
 mod windows_update;
 
@@ -41,6 +45,7 @@ use device_scanner::DeviceScannerService;
 use input_reader::InputReaderService;
 use lighting::LightingService;
 use mapping_engine::MappingEngine;
+use updater::UpdateService;
 use windows_update::WindowsUpdateService;
 
 const REGISTER_AUTOSTART_ARGUMENT: &str = "--register-autostart";
@@ -57,8 +62,10 @@ fn main() -> eframe::Result {
     };
 
     let app_state: SharedAppState = Arc::new(Mutex::new(AppState::load()));
+    localization::set_current_language(app_state.lock().unwrap().settings.language);
     let services = start_background_services(&app_state);
     restore_lighting_if_enabled(&app_state, &services.lighting);
+    start_update_checks_if_enabled(&app_state, &services.updater);
     automation::start_automation(Arc::clone(&app_state), services.lighting.clone());
 
     let starts_visible = !should_start_hidden(&arguments, &app_state);
@@ -95,6 +102,13 @@ fn start_background_services(app_state: &SharedAppState) -> BackgroundServices {
         input_reader,
         lighting: LightingService::start(),
         windows_update: WindowsUpdateService::default(),
+        updater: UpdateService::default(),
+    }
+}
+
+fn start_update_checks_if_enabled(app_state: &SharedAppState, updater: &UpdateService) {
+    if app_state.lock().unwrap().settings.check_for_updates {
+        updater.start_automatic_checks();
     }
 }
 

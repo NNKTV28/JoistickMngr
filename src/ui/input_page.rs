@@ -5,6 +5,7 @@ use eframe::egui::{self, RichText, Ui};
 use crate::app::JoystickManagerApp;
 use crate::input_reader::{AxisStatistics, ControllerSnapshot, HatDirection};
 use crate::known_devices::{DeviceKind, KnownDevice};
+use crate::localization::{tr, tr_format};
 use crate::profiles::Profile;
 use crate::system_actions::open_game_controllers_panel;
 use crate::theme::*;
@@ -71,10 +72,13 @@ impl JoystickManagerApp {
                 let seconds_ago = event.pressed_at.elapsed().as_secs();
                 monospace_text(
                     ui,
-                    format!(
-                        "{} · button {} · {seconds_ago} s ago",
-                        event.device_kind.definition().short_name,
-                        event.button_number
+                    tr_format(
+                        "{} · button {} · {} s ago",
+                        &[
+                            &event.device_kind.definition().short_name,
+                            &event.button_number,
+                            &seconds_ago,
+                        ],
                     ),
                 );
             }
@@ -114,11 +118,13 @@ fn show_device_panel_heading(ui: &mut Ui, definition: &KnownDevice, snapshot: &C
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             caption(
                 ui,
-                &format!(
+                &tr_format(
                     "{} axes · {} buttons · {} hats",
-                    snapshot.axis_values.len(),
-                    snapshot.button_states.len(),
-                    snapshot.hat_directions.len()
+                    &[
+                        &snapshot.axis_values.len(),
+                        &snapshot.button_states.len(),
+                        &snapshot.hat_directions.len(),
+                    ],
                 ),
             );
         });
@@ -203,7 +209,7 @@ fn show_hats(ui: &mut Ui, hat_directions: &[HatDirection]) {
     }
     ui.horizontal(|ui| {
         for (hat_index, direction) in hat_directions.iter().enumerate() {
-            hat_direction_indicator(ui, *direction, &format!("Hat {}", hat_index + 1));
+            hat_direction_indicator(ui, *direction, &tr_format("Hat {}", &[&(hat_index + 1)]));
         }
     });
 }
@@ -272,9 +278,9 @@ fn show_axis_health_rows(
         monospace_text(ui, format!("±{noise_percent:.1}%"));
         monospace_text(ui, range_text);
         if noise_percent > NOISY_AXIS_THRESHOLD_PERCENT {
-            ui.label(RichText::new("Jitter or moving — add a deadzone if at rest").color(WARNING_TEXT));
+            ui.label(RichText::new(tr("Jitter or moving — add a deadzone if at rest")).color(WARNING_TEXT));
         } else {
-            ui.label(RichText::new("Clean").color(SUCCESS_TEXT));
+            ui.label(RichText::new(tr("Clean")).color(SUCCESS_TEXT));
         }
         ui.end_row();
     }

@@ -65,6 +65,8 @@ Filename: "{app}\{#AppExeName}"; Parameters: "--register-autostart"; Flags: runh
 Filename: "{app}\{#AppExeName}"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; Tasks: not autostart
 ; postinstall entries run as the original (non-elevated) user by default; the app needs administrator rights.
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runascurrentuser
+; Silent installs come from the in-app updater: start the updated app again.
+Filename: "{app}\{#AppExeName}"; Flags: nowait runascurrentuser; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "StopApplication"

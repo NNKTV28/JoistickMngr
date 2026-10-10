@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::input_reader::{ControllerSnapshot, HatDirection};
 use crate::keyboard_keys::key_name;
 use crate::known_devices::DeviceKind;
+use crate::layers::BindingLayer;
+use crate::localization::{tr, tr_format};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AxisDirection {
@@ -48,12 +50,12 @@ impl HatPush {
     }
 
     pub fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             HatPush::Up => "up",
             HatPush::Right => "right",
             HatPush::Down => "down",
             HatPush::Left => "left",
-        }
+        })
     }
 }
 
@@ -115,18 +117,12 @@ impl InputSource {
         }
     }
 
-    /// Current position of an analog source, 0..=1.
-    pub fn analog_value(&self, snapshot: &ControllerSnapshot) -> Option<f64> {
-        match *self {
-            InputSource::Axis { axis_index, .. } => snapshot.axis_value(axis_index),
-            _ => None,
-        }
-    }
-
     pub fn describe(&self) -> String {
         let device = self.device().definition();
         match *self {
-            InputSource::Button { button_number, .. } => format!("{} · Button {button_number}", device.short_name),
+            InputSource::Button { button_number, .. } => {
+                tr_format("{} · Button {}", &[&device.short_name, &button_number])
+            }
             InputSource::AxisPastThreshold {
                 axis_index, direction, ..
             } => {
@@ -138,10 +134,10 @@ impl InputSource {
                 format!("{} · {} {arrow}", device.short_name, device.axis_name(axis_index))
             }
             InputSource::Axis { axis_index, .. } => {
-                format!("{} · {} (axis)", device.short_name, device.axis_name(axis_index))
+                tr_format("{} · {} (axis)", &[&device.short_name, &device.axis_name(axis_index)])
             }
             InputSource::Hat { hat_index, push, .. } => {
-                format!("{} · Hat {} {}", device.short_name, hat_index + 1, push.label())
+                tr_format("{} · Hat {} {}", &[&device.short_name, &(hat_index + 1), &push.label()])
             }
         }
     }
@@ -166,13 +162,13 @@ impl MouseButtonKind {
     ];
 
     pub fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             MouseButtonKind::Left => "Left click",
             MouseButtonKind::Right => "Right click",
             MouseButtonKind::Middle => "Middle click",
             MouseButtonKind::Back => "Back button",
             MouseButtonKind::Forward => "Forward button",
-        }
+        })
     }
 }
 
@@ -232,7 +228,7 @@ impl ControllerButton {
 
     /// Xbox name first, PlayStation name second.
     pub fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             ControllerButton::A => "A / Cross",
             ControllerButton::B => "B / Circle",
             ControllerButton::X => "X / Square",
@@ -250,7 +246,7 @@ impl ControllerButton {
             ControllerButton::DpadDown => "D-pad down",
             ControllerButton::DpadLeft => "D-pad left",
             ControllerButton::DpadRight => "D-pad right",
-        }
+        })
     }
 }
 
@@ -275,14 +271,14 @@ impl ControllerAxis {
     ];
 
     pub fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             ControllerAxis::LeftStickX => "Left stick X",
             ControllerAxis::LeftStickY => "Left stick Y",
             ControllerAxis::RightStickX => "Right stick X",
             ControllerAxis::RightStickY => "Right stick Y",
             ControllerAxis::LeftTrigger => "Left trigger (LT / L2)",
             ControllerAxis::RightTrigger => "Right trigger (RT / R2)",
-        }
+        })
     }
 }
 
@@ -310,40 +306,51 @@ pub enum OutputAction {
         axis: ControllerAxis,
         inverted: bool,
     },
+    /// Taps a key faster or slower depending on how far the axis is pushed in `direction`,
+    /// the closest a key can get to a partial press. Games see a held key a matching share of the time.
+    PulsedKey {
+        virtual_key: u16,
+        direction: AxisDirection,
+    },
 }
 
 impl OutputAction {
     pub fn needs_analog_source(&self) -> bool {
         matches!(
             self,
-            OutputAction::MouseMove { .. } | OutputAction::ControllerAxis { .. }
+            OutputAction::MouseMove { .. } | OutputAction::ControllerAxis { .. } | OutputAction::PulsedKey { .. }
         )
     }
 
     pub fn describe(&self) -> String {
         match *self {
-            OutputAction::Key { virtual_key } => format!("Key {}", key_name(virtual_key)),
+            OutputAction::Key { virtual_key } => tr_format("Key {}", &[&key_name(virtual_key)]),
             OutputAction::MouseButton { button } => button.label().to_owned(),
             OutputAction::MouseWheel { direction } => match direction {
-                WheelDirection::Up => "Scroll up".to_owned(),
-                WheelDirection::Down => "Scroll down".to_owned(),
+                WheelDirection::Up => tr("Scroll up").to_owned(),
+                WheelDirection::Down => tr("Scroll down").to_owned(),
             },
             OutputAction::MouseMove {
                 screen_axis,
                 pixels_per_second,
             } => {
-                let direction = if screen_axis == ScreenAxis::Horizontal {
-                    "left/right"
+                let template = if screen_axis == ScreenAxis::Horizontal {
+                    "Mouse left/right · {} px/s"
                 } else {
-                    "up/down"
+                    "Mouse up/down · {} px/s"
                 };
-                format!("Mouse {direction} · {pixels_per_second:.0} px/s")
+                tr_format(template, &[&pixels_per_second.round()])
             }
-            OutputAction::ControllerButton { button } => format!("Controller {}", button.label()),
+            OutputAction::ControllerButton { button } => tr_format("Controller {}", &[&button.label()]),
             OutputAction::ControllerAxis { axis, inverted } => {
-                let inverted_note = if inverted { " (inverted)" } else { "" };
-                format!("Controller {}{inverted_note}", axis.label())
+                let template = if inverted {
+                    "Controller {} (inverted)"
+                } else {
+                    "Controller {}"
+                };
+                tr_format(template, &[&axis.label()])
             }
+            OutputAction::PulsedKey { virtual_key, .. } => tr_format("Key {} (analog)", &[&key_name(virtual_key)]),
         }
     }
 }
@@ -352,6 +359,8 @@ impl OutputAction {
 pub struct InputBinding {
     pub source: InputSource,
     pub action: OutputAction,
+    #[serde(default)]
+    pub layer: BindingLayer,
 }
 
 impl InputBinding {
@@ -377,11 +386,11 @@ impl VirtualControllerKind {
     ];
 
     pub fn label(self) -> &'static str {
-        match self {
+        tr(match self {
             VirtualControllerKind::None => "No virtual controller",
             VirtualControllerKind::Xbox360 => "Xbox controller",
             VirtualControllerKind::DualShock4 => "PlayStation controller (DualShock 4)",
-        }
+        })
     }
 }
 
@@ -426,6 +435,7 @@ mod tests {
                 axis: ControllerAxis::LeftStickX,
                 inverted: false,
             },
+            layer: Default::default(),
         };
         assert!(!binding.is_consistent());
     }

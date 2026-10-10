@@ -6,6 +6,7 @@ use crate::app::JoystickManagerApp;
 use crate::driver_status::vendor_release_for;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingAvailability;
+use crate::localization::{tr, tr_format};
 use crate::profiles::{LightingSetting, Profile, RgbColor};
 use crate::system_actions::open_in_default_handler;
 use crate::theme::*;
@@ -88,7 +89,7 @@ impl JoystickManagerApp {
             |ui| {
                 save_clicked = primary_button(ui, "Save to profile").clicked();
                 revert_clicked = secondary_button(ui, "Revert").clicked();
-                ui.checkbox(&mut linked, "Link stick & throttle");
+                ui.checkbox(&mut linked, tr("Link stick & throttle"));
             },
         );
         self.lighting_editor.linked = linked;
@@ -122,7 +123,7 @@ impl JoystickManagerApp {
         let mut open_download_page = false;
         warning_card(ui, |ui| {
             ui.label(RichText::new(message).color(WARNING_BODY_TEXT));
-            open_download_page = ui.link("Open the Logitech download page").clicked();
+            open_download_page = ui.link(tr("Open the Logitech download page")).clicked();
         });
         if open_download_page {
             open_in_default_handler(vendor_release_for(DeviceKind::Joystick).download_page_url);
@@ -184,9 +185,9 @@ impl JoystickManagerApp {
         match save_result {
             Ok(profile_name) => {
                 self.profile_editor.reload_from(&self.app_state.lock().unwrap());
-                self.show_status(format!("Lighting saved to \"{profile_name}\"."), Tone::Success);
+                self.show_status(tr_format("Lighting saved to \"{}\".", &[&profile_name]), Tone::Success);
             }
-            Err(error) => self.show_status(format!("Could not save the profile: {error}"), Tone::Danger),
+            Err(error) => self.show_status(tr_format("Could not save the profile: {}", &[&error]), Tone::Danger),
         }
     }
 

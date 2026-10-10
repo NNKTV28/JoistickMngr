@@ -7,6 +7,7 @@ use eframe::egui::{self, CornerRadius, Frame, Margin, RichText, Sense, Slider, S
 use crate::app::JoystickManagerApp;
 use crate::app_state::AppState;
 use crate::known_devices::DeviceKind;
+use crate::localization::{tr, tr_format};
 use crate::profiles::{Profile, RgbColor};
 use crate::storage::{read_json_file, write_json_file};
 use crate::system_actions::open_in_default_handler;
@@ -137,7 +138,7 @@ impl JoystickManagerApp {
             card_title(ui, "Axis tuning");
             muted_text(
                 ui,
-                "Previewed live in the Input tester. Writing tuning into the device itself is not supported yet.",
+                "Applied to axes mapped to the mouse or a virtual controller, and previewed in the Input tester.",
             );
             ui.add_space(8.0);
             show_axis_tuning_table(ui, &mut self.profile_editor.draft);
@@ -174,7 +175,7 @@ impl JoystickManagerApp {
                 ui.horizontal(|ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut draft.game_executable_name)
-                            .hint_text("game.exe — leave empty for manual only")
+                            .hint_text(tr("game.exe — leave empty for manual only"))
                             .font(monospace_font(14.0))
                             .desired_width(320.0),
                     );
@@ -215,7 +216,7 @@ impl JoystickManagerApp {
         state.profile_store.profiles.push(new_profile.clone());
         state.profile_store.save()?;
         self.profile_editor.select(&new_profile);
-        Ok(Some(format!("Created \"{}\".", new_profile.name)))
+        Ok(Some(tr_format("Created \"{}\".", &[&new_profile.name])))
     }
 
     fn duplicate_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
@@ -225,7 +226,7 @@ impl JoystickManagerApp {
         state.profile_store.profiles.push(copy.clone());
         state.profile_store.save()?;
         self.profile_editor.select(&copy);
-        Ok(Some(format!("Created \"{}\".", copy.name)))
+        Ok(Some(tr_format("Created \"{}\".", &[&copy.name])))
     }
 
     fn delete_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
@@ -248,7 +249,7 @@ impl JoystickManagerApp {
             self.profile_editor = ProfileEditor::new(&state);
         }
         self.apply_current_lighting();
-        Ok(Some(format!("Deleted \"{deleted_name}\".")))
+        Ok(Some(tr_format("Deleted \"{}\".", &[&deleted_name])))
     }
 
     fn save_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
@@ -282,14 +283,14 @@ impl JoystickManagerApp {
         }
         self.profile_editor.select(&draft);
         self.apply_current_lighting();
-        Ok(Some(format!("Saved \"{}\".", draft.name)))
+        Ok(Some(tr_format("Saved \"{}\".", &[&draft.name])))
     }
 
     fn activate_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
         let selected_name = self.profile_editor.selected_name.clone();
         self.update_settings(|settings| settings.active_profile_name = selected_name.clone());
         self.apply_current_lighting();
-        Ok(Some(format!("\"{selected_name}\" is now the active profile.")))
+        Ok(Some(tr_format("\"{}\" is now the active profile.", &[&selected_name])))
     }
 
     fn import_profile(&mut self) -> anyhow::Result<Option<String>> {
@@ -306,7 +307,7 @@ impl JoystickManagerApp {
         state.profile_store.profiles.push(imported.clone());
         state.profile_store.save()?;
         self.profile_editor.select(&imported);
-        Ok(Some(format!("Imported \"{}\".", imported.name)))
+        Ok(Some(tr_format("Imported \"{}\".", &[&imported.name])))
     }
 
     fn export_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
@@ -319,7 +320,7 @@ impl JoystickManagerApp {
             return Ok(None);
         };
         write_json_file(&path, &profile)?;
-        Ok(Some(format!("Exported to {}.", path.display())))
+        Ok(Some(tr_format("Exported to {}.", &[&path.display()])))
     }
 }
 
@@ -346,9 +347,9 @@ fn profile_list_row(ui: &mut Ui, profile: &Profile, is_selected: bool, is_active
                 ui.vertical(|ui| {
                     ui.label(RichText::new(&profile.name).font(semibold_font(15.0)));
                     let trigger_text = if profile.is_triggered_by_game() {
-                        format!("When {} runs", profile.game_executable_name)
+                        tr_format("When {} runs", &[&profile.game_executable_name])
                     } else {
-                        "Manual".to_owned()
+                        tr("Manual").to_owned()
                     };
                     ui.label(RichText::new(trigger_text).size(13.0).color(TEXT_MUTED));
                 });
@@ -456,7 +457,7 @@ fn show_logitech_profiles_card(ui: &mut Ui) {
                     .font(monospace_font(12.0))
                     .color(TEXT_SECONDARY),
             );
-            if ui.link("Open with Logitech profiler").clicked() {
+            if ui.link(tr("Open with Logitech profiler")).clicked() {
                 open_in_default_handler(&profile_path.to_string_lossy());
             }
         }

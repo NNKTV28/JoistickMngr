@@ -11,11 +11,14 @@ use std::time::{Duration, Instant};
 
 use crate::app_state::SharedAppState;
 use crate::bindings::{
-    ControllerAxis, InputBinding, MouseButtonKind, OutputAction, ScreenAxis, VirtualControllerKind, WheelDirection,
+    AxisDirection, ControllerAxis, InputBinding, InputSource, MouseButtonKind, OutputAction, ScreenAxis,
+    VirtualControllerKind, WheelDirection,
 };
 use crate::input_injection::InputBatch;
 use crate::input_reader::{ControllerSnapshot, ControllerUpdate, InputReaderService};
 use crate::known_devices::DeviceKind;
+use crate::layers::LayerSetup;
+use crate::profiles::AxisTuning;
 use crate::thread_priority::{raise_current_thread_priority, request_one_millisecond_timer_resolution};
 use crate::virtual_gamepad::{GamepadState, VirtualGamepad};
 
@@ -24,6 +27,10 @@ const CONFIGURATION_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
 const VIRTUAL_CONTROLLER_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 const WHEEL_REPEAT_INTERVAL: Duration = Duration::from_millis(100);
 const MOUSE_DEADZONE: f64 = 0.04;
+/// One pulse cycle of a pulsed key. Short enough to feel smooth, long enough for games to see each press.
+const PULSE_PERIOD: Duration = Duration::from_millis(60);
+const PULSE_DEADZONE: f64 = 0.08;
+const PULSE_FULL_PRESS: f64 = 0.92;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum VirtualControllerStatus {
@@ -64,6 +71,8 @@ struct MappingConfiguration {
     is_enabled: bool,
     bindings: Vec<InputBinding>,
     virtual_controller: VirtualControllerKind,
+    layer_setup: LayerSetup,
+    axis_tunings: Vec<AxisTuning>,
 }
 
 /// Everything the bindings ask for right now.
@@ -87,6 +96,7 @@ struct MappingWorker {
     last_wheel_notch: HashMap<usize, Instant>,
     mouse_movement_remainder: (f64, f64),
     last_iteration: Instant,
+    started_at: Instant,
     virtual_gamepad: Option<VirtualGamepad>,
     last_sent_gamepad_state: Option<GamepadState>,
     last_virtual_controller_attempt: Option<Instant>,
@@ -105,6 +115,7 @@ impl MappingWorker {
             last_wheel_notch: HashMap::new(),
             mouse_movement_remainder: (0.0, 0.0),
             last_iteration: Instant::now(),
+            started_at: Instant::now(),
             virtual_gamepad: None,
             last_sent_gamepad_state: None,
             last_virtual_controller_attempt: None,
@@ -149,6 +160,8 @@ impl MappingWorker {
                 .filter(InputBinding::is_consistent)
                 .collect(),
             virtual_controller: profile.virtual_controller,
+            layer_setup: profile.layer_setup,
+            axis_tunings: profile.axis_tunings,
         };
         self.last_configuration_refresh = Instant::now();
     }
@@ -206,7 +219,8 @@ impl MappingWorker {
         let seconds_since_last_iteration = self.last_iteration.elapsed().as_secs_f64();
         self.last_iteration = Instant::now();
         let desired = if self.configuration.is_enabled {
-            collect_desired_outputs(&self.configuration.bindings, &self.snapshots)
+            let pulse_phase = pulse_phase(self.started_at.elapsed());
+            collect_desired_outputs(&self.configuration, &self.snapshots, pulse_phase)
         } else {
             DesiredOutputs::default()
         };
@@ -294,17 +308,24 @@ impl MappingWorker {
 }
 
 fn collect_desired_outputs(
-    bindings: &[InputBinding],
+    configuration: &MappingConfiguration,
     snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+    pulse_phase: f64,
 ) -> DesiredOutputs {
     let mut desired = DesiredOutputs::default();
-    for (binding_index, binding) in bindings.iter().enumerate() {
+    let active_layer = configuration.layer_setup.active_layer(snapshots);
+    let bindings_in_layer = configuration
+        .bindings
+        .iter()
+        .enumerate()
+        .filter(|(_, binding)| binding.layer.matches(active_layer));
+    for (binding_index, binding) in bindings_in_layer {
         let Some(snapshot) = snapshots.get(&binding.source.device()) else {
             continue;
         };
         if binding.source.is_analog() {
-            if let Some(value) = binding.source.analog_value(snapshot) {
-                add_analog_output(&mut desired, binding.action, value);
+            if let Some(position) = tuned_axis_position(binding.source, snapshot, &configuration.axis_tunings) {
+                add_analog_output(&mut desired, binding.action, position, pulse_phase);
             }
         } else if binding.source.is_active(snapshot) {
             add_switch_output(&mut desired, binding_index, binding.action);
@@ -313,8 +334,20 @@ fn collect_desired_outputs(
     desired
 }
 
-fn add_analog_output(desired: &mut DesiredOutputs, action: OutputAction, axis_value: f64) {
+fn add_analog_output(
+    desired: &mut DesiredOutputs,
+    action: OutputAction,
+    position: TunedAxisPosition,
+    pulse_phase: f64,
+) {
+    let axis_value = position.value;
     match action {
+        OutputAction::PulsedKey { virtual_key, direction } => {
+            let push = push_toward(position, direction);
+            if is_pulse_held(push, pulse_phase) {
+                desired.keys.insert(virtual_key);
+            }
+        }
         OutputAction::MouseMove {
             screen_axis,
             pixels_per_second,
@@ -348,6 +381,55 @@ fn add_switch_output(desired: &mut DesiredOutputs, binding_index: usize, action:
         }
         _ => {}
     }
+}
+
+/// An axis reading after the profile's deadzone and curve, plus where the axis rests.
+#[derive(Clone, Copy, Debug)]
+struct TunedAxisPosition {
+    value: f64,
+    rests_at_center: bool,
+}
+
+fn tuned_axis_position(
+    source: InputSource,
+    snapshot: &ControllerSnapshot,
+    axis_tunings: &[AxisTuning],
+) -> Option<TunedAxisPosition> {
+    let InputSource::Axis { device, axis_index } = source else {
+        return None;
+    };
+    let raw_value = snapshot.axis_value(axis_index)?;
+    let rests_at_center = device.definition().axis_rests_at_center(axis_index);
+    let tuning = axis_tunings
+        .iter()
+        .find(|tuning| tuning.device_kind == device && tuning.axis_index == axis_index);
+    let value = tuning.map_or(raw_value, |tuning| tuning.apply_to_reading(raw_value, rests_at_center));
+    Some(TunedAxisPosition { value, rests_at_center })
+}
+
+/// How far (0..=1) the axis is pushed in one direction: from the centre for sticks, from the end for throttles.
+fn push_toward(position: TunedAxisPosition, direction: AxisDirection) -> f64 {
+    let push = match (position.rests_at_center, direction) {
+        (true, AxisDirection::Increasing) => (position.value - 0.5) * 2.0,
+        (true, AxisDirection::Decreasing) => (0.5 - position.value) * 2.0,
+        (false, AxisDirection::Increasing) => position.value,
+        (false, AxisDirection::Decreasing) => 1.0 - position.value,
+    };
+    push.clamp(0.0, 1.0)
+}
+
+/// Where we are inside the current pulse cycle, 0..1.
+fn pulse_phase(time_since_start: Duration) -> f64 {
+    let cycle_position = time_since_start.as_secs_f64() % PULSE_PERIOD.as_secs_f64();
+    cycle_position / PULSE_PERIOD.as_secs_f64()
+}
+
+/// A pulsed key is held for the first `push` share of every cycle; tiny pushes do nothing, near-full pushes hold it.
+fn is_pulse_held(push: f64, pulse_phase: f64) -> bool {
+    if push <= PULSE_DEADZONE {
+        return false;
+    }
+    push >= PULSE_FULL_PRESS || pulse_phase < push
 }
 
 /// Position of a centred axis as -1..=1, with a small deadzone so a resting stick does not drift the pointer.
@@ -389,6 +471,22 @@ mod tests {
     #[test]
     fn resting_axis_inside_deadzone_does_not_move_the_mouse() {
         assert_eq!(deflection_outside_deadzone(0.51), 0.0);
+    }
+
+    #[test]
+    fn stick_pushed_a_third_forward_holds_the_key_a_third_of_the_time() {
+        let position = TunedAxisPosition {
+            value: 0.5 - 0.5 / 3.0,
+            rests_at_center: true,
+        };
+        let push = push_toward(position, AxisDirection::Decreasing);
+        assert!(is_pulse_held(push, 0.2));
+        assert!(!is_pulse_held(push, 0.5));
+    }
+
+    #[test]
+    fn small_push_never_presses_the_key() {
+        assert!(!is_pulse_held(0.05, 0.0));
     }
 
     #[test]

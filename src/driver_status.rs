@@ -2,11 +2,14 @@
 
 use std::cmp::Ordering;
 
+use crate::version_numbers::compare_versions;
+
 use winreg::RegKey;
 use winreg::enums::{HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_32KEY, KEY_WOW64_64KEY};
 
 use crate::device_scanner::ConnectedDevice;
 use crate::known_devices::DeviceKind;
+use crate::localization::{tr, tr_format};
 
 const UNINSTALL_REGISTRY_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 const VENDOR_PROVIDER_NAME: &str = "Logitech";
@@ -67,11 +70,11 @@ pub enum DriverHealth {
 impl DriverHealth {
     pub fn summary(&self) -> String {
         match self {
-            DriverHealth::UpToDate { .. } => "Driver up to date".into(),
-            DriverHealth::Outdated { latest_version, .. } => format!("Update available ({latest_version})"),
-            DriverHealth::VendorDriverMissing => "Logitech driver missing".into(),
-            DriverHealth::UsingWindowsDriver => "Windows driver in use".into(),
-            DriverHealth::DeviceProblem => "Device reports a problem".into(),
+            DriverHealth::UpToDate { .. } => tr("Driver up to date").to_owned(),
+            DriverHealth::Outdated { latest_version, .. } => tr_format("Update available ({})", &[latest_version]),
+            DriverHealth::VendorDriverMissing => tr("Logitech driver missing").to_owned(),
+            DriverHealth::UsingWindowsDriver => tr("Windows driver in use").to_owned(),
+            DriverHealth::DeviceProblem => tr("Device reports a problem").to_owned(),
         }
     }
 
@@ -136,41 +139,4 @@ fn find_installed_package_version(name_fragment: &str, registry_view: u32) -> Op
         }
         product_key.get_value("DisplayVersion").ok()
     })
-}
-
-/// Compares dotted version strings number by number, so `8.0.197.0` is older than `8.0.213.0`.
-pub fn compare_versions(first_version: &str, second_version: &str) -> Ordering {
-    let parse_parts = |version: &str| -> Vec<u64> {
-        version
-            .split('.')
-            .map(|part| part.trim().parse().unwrap_or(0))
-            .collect()
-    };
-    let first_parts = parse_parts(first_version);
-    let second_parts = parse_parts(second_version);
-    let part_count = first_parts.len().max(second_parts.len());
-    (0..part_count)
-        .map(|index| {
-            let first_part = first_parts.get(index).copied().unwrap_or(0);
-            let second_part = second_parts.get(index).copied().unwrap_or(0);
-            first_part.cmp(&second_part)
-        })
-        .find(|ordering| *ordering != Ordering::Equal)
-        .unwrap_or(Ordering::Equal)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::compare_versions;
-    use std::cmp::Ordering;
-
-    #[test]
-    fn older_build_number_compares_as_less() {
-        assert_eq!(compare_versions("8.0.197.0", "8.0.213.0"), Ordering::Less);
-    }
-
-    #[test]
-    fn missing_trailing_parts_count_as_zero() {
-        assert_eq!(compare_versions("8.0", "8.0.0.0"), Ordering::Equal);
-    }
 }

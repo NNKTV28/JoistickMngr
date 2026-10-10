@@ -6,6 +6,7 @@ use eframe::egui::{
 };
 
 use crate::input_reader::HatDirection;
+use crate::localization::tr;
 use crate::profiles::{AxisTuning, LightingSetting, RgbColor};
 use crate::theme::*;
 
@@ -67,7 +68,7 @@ fn show_full_width_frame(ui: &mut Ui, frame: Frame, add_contents: impl FnOnce(&m
 /// Small uppercase label used above values and sections.
 pub fn caption(ui: &mut Ui, text: &str) -> Response {
     ui.label(
-        RichText::new(text.to_uppercase())
+        RichText::new(tr(text).to_uppercase())
             .font(condensed_font(13.0))
             .color(TEXT_MUTED)
             .extra_letter_spacing(1.4),
@@ -76,7 +77,7 @@ pub fn caption(ui: &mut Ui, text: &str) -> Response {
 
 pub fn colored_caption(ui: &mut Ui, text: &str, color: Color32) -> Response {
     ui.label(
-        RichText::new(text.to_uppercase())
+        RichText::new(tr(text).to_uppercase())
             .font(condensed_font(13.0))
             .color(color)
             .extra_letter_spacing(1.4),
@@ -84,11 +85,12 @@ pub fn colored_caption(ui: &mut Ui, text: &str, color: Color32) -> Response {
 }
 
 pub fn card_title(ui: &mut Ui, text: &str) -> Response {
-    ui.label(RichText::new(text).font(semibold_font(19.0)).color(TEXT_PRIMARY))
+    ui.label(RichText::new(tr(text)).font(semibold_font(19.0)).color(TEXT_PRIMARY))
 }
 
 pub fn muted_text(ui: &mut Ui, text: impl Into<String>) -> Response {
-    ui.label(RichText::new(text.into()).color(TEXT_MUTED))
+    let text = text.into();
+    ui.label(RichText::new(tr(&text)).color(TEXT_MUTED))
 }
 
 pub fn monospace_text(ui: &mut Ui, text: impl Into<String>) -> Response {
@@ -110,7 +112,7 @@ pub fn page_header(
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             caption(ui, caption_text);
-            ui.label(RichText::new(title).font(condensed_font(36.0)).color(TEXT_PRIMARY));
+            ui.label(RichText::new(tr(title)).font(condensed_font(36.0)).color(TEXT_PRIMARY));
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), add_actions);
     });
@@ -126,12 +128,14 @@ pub fn status_pill(ui: &mut Ui, text: &str, tone: Tone) -> Response {
         .fill(background)
         .corner_radius(CornerRadius::same(255))
         .inner_margin(Margin::symmetric(10, 4))
-        .show(ui, |ui| ui.label(RichText::new(text).size(13.5).color(foreground)))
+        .show(ui, |ui| ui.label(RichText::new(tr(text)).size(13.5).color(foreground)))
         .response
 }
 
 pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
-    let label = RichText::new(text).font(semibold_font(15.0)).color(ACCENT_AMBER_TEXT);
+    let label = RichText::new(tr(text))
+        .font(semibold_font(15.0))
+        .color(ACCENT_AMBER_TEXT);
     ui.add(
         egui::Button::new(label)
             .fill(ACCENT_AMBER)
@@ -141,7 +145,7 @@ pub fn primary_button(ui: &mut Ui, text: &str) -> Response {
 }
 
 pub fn secondary_button(ui: &mut Ui, text: &str) -> Response {
-    ui.add(egui::Button::new(RichText::new(text).color(TEXT_PRIMARY)).min_size(vec2(0.0, BUTTON_HEIGHT)))
+    ui.add(egui::Button::new(RichText::new(tr(text)).color(TEXT_PRIMARY)).min_size(vec2(0.0, BUTTON_HEIGHT)))
 }
 
 pub fn enabled_primary_button(ui: &mut Ui, is_enabled: bool, text: &str) -> Response {
@@ -432,7 +436,7 @@ pub fn navigation_item(ui: &mut Ui, label: &str, is_selected: bool, leading_dot:
     painter.text(
         pos2(text_x, rect.center().y),
         Align2::LEFT_CENTER,
-        label,
+        tr(label),
         egui::FontId::proportional(15.0),
         text_color,
     );

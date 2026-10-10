@@ -7,6 +7,7 @@ use crate::device_scanner::ConnectedDevice;
 use crate::driver_repair::{find_installed_third_party_package, remove_driver_package};
 use crate::driver_status::{evaluate_driver_health, installed_package_version, vendor_release_for};
 use crate::known_devices::{DeviceKind, KnownDevice};
+use crate::localization::{tr, tr_format};
 use crate::system_actions::{open_device_manager, open_in_default_handler, restart_device};
 use crate::theme::*;
 use crate::ui::overview_page::tone_for_health;
@@ -79,9 +80,12 @@ impl JoystickManagerApp {
         match restart_device(&parent_instance_id) {
             Ok(()) => {
                 self.services.device_scanner.request_rescan();
-                self.show_status(format!("{} restarted.", device.definition.short_name), Tone::Success);
+                self.show_status(
+                    tr_format("{} restarted.", &[&device.definition.short_name]),
+                    Tone::Success,
+                );
             }
-            Err(error) => self.show_status(format!("Restart failed: {error}"), Tone::Danger),
+            Err(error) => self.show_status(tr_format("Restart failed: {}", &[&error]), Tone::Danger),
         }
     }
 
@@ -171,7 +175,7 @@ impl JoystickManagerApp {
                  The vendor drivers Windows Update offers for it are old and are blocked by Memory \
                  Integrity, so installing them from here is turned off."
             };
-            ui.label(RichText::new(explanation).color(TEXT_SECONDARY));
+            ui.label(RichText::new(tr(explanation)).color(TEXT_SECONDARY));
             for offer in &offers {
                 monospace_text(ui, format!("{} · {}", offer.provider, offer.title));
             }
@@ -214,14 +218,17 @@ impl JoystickManagerApp {
             colored_caption(ui, "Driver failed to load", DANGER_TEXT);
             card_title(ui, "Windows blocked this device's driver");
             let explanation = match &blocked_package {
-                Some(package) => format!(
-                    "The installed vendor driver ({package}) could not start. Old drivers are usually blocked \
+                Some(package) => tr_format(
+                    "The installed vendor driver ({}) could not start. Old drivers are usually blocked \
                      by Memory Integrity (Core isolation). Removing it switches the device back to the Windows \
-                     driver, which supports every axis and button."
+                     driver, which supports every axis and button.",
+                    &[package],
                 ),
-                None => "A driver on this device could not start. Restarting the device or reconnecting it \
-                         may help; Device Manager shows the exact error."
-                    .to_owned(),
+                None => tr(
+                    "A driver on this device could not start. Restarting the device or reconnecting it \
+                         may help; Device Manager shows the exact error.",
+                )
+                .to_owned(),
             };
             ui.label(RichText::new(explanation).color(TEXT_SECONDARY));
             ui.add_space(8.0);
@@ -240,14 +247,14 @@ impl JoystickManagerApp {
             Ok(()) => {
                 self.services.device_scanner.request_rescan();
                 self.show_status(
-                    format!(
-                        "Removed {package}. {} now uses the Windows driver.",
-                        device.definition.short_name
+                    tr_format(
+                        "Removed {}. {} now uses the Windows driver.",
+                        &[&package, &device.definition.short_name],
                     ),
                     Tone::Success,
                 );
             }
-            Err(error) => self.show_status(format!("Could not remove {package}: {error}"), Tone::Danger),
+            Err(error) => self.show_status(tr_format("Could not remove {}: {}", &[&package, &error]), Tone::Danger),
         }
     }
 
@@ -266,11 +273,11 @@ impl JoystickManagerApp {
             });
             ui.add_space(6.0);
             ui.label(
-                RichText::new(
+                RichText::new(tr(
                     "Windows can switch idle USB devices off to save power. Flight controllers then drop out \
                      or send ghost inputs when they wake up. Turning it off is recommended for HOTAS setups. \
                      The device restarts to apply the change.",
-                )
+                ))
                 .color(TEXT_SECONDARY),
             );
             ui.add_space(10.0);
@@ -304,22 +311,23 @@ impl JoystickManagerApp {
     fn change_power_saving(&mut self, device: &ConnectedDevice, enable: bool) {
         let usb_instance_ids = device.usb_instance_ids();
         if let Err(error) = set_power_saving_enabled(&usb_instance_ids, enable) {
-            self.show_status(format!("Could not change power saving: {error}"), Tone::Danger);
+            self.show_status(tr_format("Could not change power saving: {}", &[&error]), Tone::Danger);
             return;
         }
         self.restart_connected_device(device);
-        let action = if enable { "allowed" } else { "turned off" };
-        self.show_status(
-            format!("Power saving {action} for {}.", device.definition.short_name),
-            Tone::Success,
-        );
+        let template = if enable {
+            "Power saving allowed for {}."
+        } else {
+            "Power saving turned off for {}."
+        };
+        self.show_status(tr_format(template, &[&device.definition.short_name]), Tone::Success);
     }
 }
 
 fn build_header_caption(definition: &KnownDevice, connected_device: Option<&ConnectedDevice>) -> String {
     let serial_part = connected_device
         .and_then(|device| device.serial_number.as_deref())
-        .map(|serial| format!(" · Serial {serial}"))
+        .map(|serial| format!(" · {} {serial}", tr("Serial")))
         .unwrap_or_default();
     format!(
         "{} · {}{serial_part}",
@@ -418,9 +426,9 @@ fn show_power_recommendation_card(ui: &mut Ui) -> bool {
         colored_caption(ui, "Power · recommended", WARNING_TEXT);
         card_title(ui, "USB power saving is on");
         ui.label(
-            RichText::new(
+            RichText::new(tr(
                 "Windows may switch this device off when idle, a frequent cause of X56 disconnects and ghost inputs.",
-            )
+            ))
             .color(WARNING_BODY_TEXT),
         );
         ui.add_space(8.0);
@@ -435,7 +443,7 @@ fn describe_update_state(update_state: &WindowsUpdateState, offer_count: usize) 
         WindowsUpdateState::Searching => ("Searching…".into(), Tone::Info),
         WindowsUpdateState::Installing => ("Installing…".into(), Tone::Info),
         WindowsUpdateState::SearchFinished { .. } if offer_count > 0 => {
-            (format!("{offer_count} update(s) offered"), Tone::Warning)
+            (tr_format("{} update(s) offered", &[&offer_count]), Tone::Warning)
         }
         WindowsUpdateState::SearchFinished { .. } => ("No driver offered".into(), Tone::Success),
         WindowsUpdateState::InstallFinished { .. } => ("Installed".into(), Tone::Success),

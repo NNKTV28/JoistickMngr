@@ -4,6 +4,7 @@ use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 use crate::app_icon::render_logo_rgba;
+use crate::localization::tr;
 
 const TRAY_ICON_SIZE: u32 = 32;
 
@@ -16,8 +17,8 @@ pub enum TrayRequest {
 /// Creates the tray icon. `on_request` runs on the UI thread as soon as the user clicks,
 /// even while the window is hidden.
 pub fn create_tray_icon(on_request: impl Fn(TrayRequest) + Send + Sync + Clone + 'static) -> anyhow::Result<TrayIcon> {
-    let open_item = MenuItem::new("Open Joystick Manager", true, None);
-    let quit_item = MenuItem::new("Quit", true, None);
+    let open_item = MenuItem::new(tr("Open Joystick Manager"), true, None);
+    let quit_item = MenuItem::new(tr("Quit"), true, None);
     let menu = Menu::new();
     menu.append_items(&[&open_item, &PredefinedMenuItem::separator(), &quit_item])?;
 

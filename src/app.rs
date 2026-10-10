@@ -12,6 +12,7 @@ use crate::device_scanner::DeviceScannerService;
 use crate::input_reader::InputReaderService;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingService;
+use crate::localization::tr;
 use crate::mapping_engine::MappingEngine;
 use crate::product_images::ProductImages;
 use crate::settings::AppSettings;
@@ -23,6 +24,7 @@ use crate::ui::lighting_page::LightingEditor;
 use crate::ui::mapping_page::MappingEditor;
 use crate::ui::profiles_page::ProfileEditor;
 use crate::ui::widgets::Tone;
+use crate::updater::UpdateService;
 use crate::windows_update::WindowsUpdateService;
 
 pub const WINDOW_TITLE: &str = "Joystick Manager";
@@ -69,6 +71,7 @@ pub struct BackgroundServices {
     pub input_reader: InputReaderService,
     pub lighting: LightingService,
     pub windows_update: WindowsUpdateService,
+    pub updater: UpdateService,
 }
 
 pub struct JoystickManagerApp {
@@ -129,8 +132,9 @@ impl JoystickManagerApp {
     }
 
     pub(crate) fn show_status(&mut self, message: impl Into<String>, tone: Tone) {
+        let message: String = message.into();
         self.status_banner = Some(StatusBanner {
-            message: message.into(),
+            message: tr(&message).to_owned(),
             tone,
             shown_at: Instant::now(),
         });
@@ -170,7 +174,7 @@ impl JoystickManagerApp {
         write_setting: impl FnOnce(&mut AppSettings, bool),
     ) {
         let mut value = read_setting(&self.app_state.lock().unwrap().settings);
-        if ui.checkbox(&mut value, label).changed() {
+        if ui.checkbox(&mut value, tr(label)).changed() {
             self.update_settings(|settings| write_setting(settings, value));
         }
     }
