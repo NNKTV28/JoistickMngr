@@ -63,7 +63,8 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 [Run]
 Filename: "{app}\{#AppExeName}"; Parameters: "--register-autostart"; Flags: runhidden waituntilterminated; Tasks: autostart; StatusMsg: "Setting up start-up..."
 Filename: "{app}\{#AppExeName}"; Parameters: "--unregister-autostart"; Flags: runhidden waituntilterminated; Tasks: not autostart
-Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; postinstall entries run as the original (non-elevated) user by default; the app needs administrator rights.
+Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent runascurrentuser
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM {#AppExeName}"; Flags: runhidden; RunOnceId: "StopApplication"
