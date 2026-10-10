@@ -6,6 +6,7 @@ mod app_state;
 mod automation;
 mod autostart;
 mod device_scanner;
+mod driver_repair;
 mod driver_status;
 mod input_reader;
 mod known_devices;

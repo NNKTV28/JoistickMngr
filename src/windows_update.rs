@@ -84,14 +84,15 @@ impl WindowsUpdateService {
         });
     }
 
-    pub fn start_install(&self) {
+    /// Installs the offered drivers for one device only, identified by its `VID_xxxx&PID_xxxx` fragment.
+    pub fn start_install(&self, hardware_id_fragment: String) {
         if self.state().is_busy() {
             return;
         }
         *self.state.lock().unwrap() = WindowsUpdateState::Installing;
         let state = Arc::clone(&self.state);
         std::thread::spawn(move || {
-            let new_state = match run_with_com(install_driver_offers) {
+            let new_state = match run_with_com(|| install_driver_offers(&hardware_id_fragment)) {
                 Ok(message) => WindowsUpdateState::InstallFinished { message },
                 Err(error) => WindowsUpdateState::Failed {
                     message: format!("Driver install failed: {error}"),
@@ -112,15 +113,16 @@ fn run_with_com<T>(work: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T
 
 fn search_driver_offers() -> anyhow::Result<Vec<DriverUpdateOffer>> {
     let session = create_update_session()?;
-    let matching_updates = find_matching_driver_updates(&session)?;
+    let matching_updates = find_matching_driver_updates(&session, is_for_any_known_device)?;
     matching_updates.iter().map(describe_driver_update).collect()
 }
 
-fn install_driver_offers() -> anyhow::Result<String> {
+fn install_driver_offers(hardware_id_fragment: &str) -> anyhow::Result<String> {
     let session = create_update_session()?;
-    let matching_updates = find_matching_driver_updates(&session)?;
+    let matching_updates =
+        find_matching_driver_updates(&session, |hardware_id| hardware_id.contains(hardware_id_fragment))?;
     if matching_updates.is_empty() {
-        return Ok("No driver updates were offered for your devices.".into());
+        return Ok("No driver updates were offered for this device.".into());
     }
     let update_collection = build_update_collection(&matching_updates)?;
     download_updates(&session, &update_collection)?;
@@ -136,7 +138,11 @@ fn create_update_session() -> anyhow::Result<IUpdateSession> {
     }
 }
 
-fn find_matching_driver_updates(session: &IUpdateSession) -> anyhow::Result<Vec<IUpdate>> {
+/// Driver updates Windows Update offers whose upper-case hardware id passes `is_wanted`.
+fn find_matching_driver_updates(
+    session: &IUpdateSession,
+    is_wanted: impl Fn(&str) -> bool,
+) -> anyhow::Result<Vec<IUpdate>> {
     // SAFETY: plain COM calls on interfaces owned by this thread.
     unsafe {
         let searcher = session.CreateUpdateSearcher()?;
@@ -145,7 +151,8 @@ fn find_matching_driver_updates(session: &IUpdateSession) -> anyhow::Result<Vec<
         let mut matching_updates = Vec::new();
         for index in 0..updates.Count()? {
             let update = updates.get_Item(index)?;
-            if is_update_for_known_device(&update) {
+            let hardware_id = driver_hardware_id(&update).unwrap_or_default().to_uppercase();
+            if is_wanted(&hardware_id) {
                 matching_updates.push(update);
             }
         }
@@ -153,11 +160,7 @@ fn find_matching_driver_updates(session: &IUpdateSession) -> anyhow::Result<Vec<
     }
 }
 
-fn is_update_for_known_device(update: &IUpdate) -> bool {
-    let Ok(hardware_id) = driver_hardware_id(update) else {
-        return false;
-    };
-    let hardware_id = hardware_id.to_uppercase();
+fn is_for_any_known_device(hardware_id: &str) -> bool {
     KNOWN_DEVICES
         .iter()
         .any(|device| hardware_id.contains(&device.hardware_id_fragment()))

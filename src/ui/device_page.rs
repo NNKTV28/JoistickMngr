@@ -4,6 +4,7 @@ use eframe::egui::{self, Align2, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
 
 use crate::app::{DevicePageTab, JoystickManagerApp};
 use crate::device_scanner::ConnectedDevice;
+use crate::driver_repair::{find_installed_third_party_package, remove_driver_package};
 use crate::driver_status::{evaluate_driver_health, installed_package_version, vendor_release_for};
 use crate::known_devices::{DeviceKind, KnownDevice};
 use crate::system_actions::{open_device_manager, open_in_default_handler, restart_device};
@@ -123,6 +124,9 @@ impl JoystickManagerApp {
     }
 
     fn show_drivers_tab(&mut self, ui: &mut Ui, device: &ConnectedDevice) {
+        if !device.all_interfaces_working() {
+            self.show_failed_driver_repair_card(ui, device);
+        }
         let column_count = ((ui.available_width() / INFORMATION_CARD_MINIMUM_WIDTH) as usize).clamp(1, 3);
         let power_saving = read_power_saving_state(&device.usb_instance_ids());
         let mut disable_power_saving_clicked = false;
@@ -147,6 +151,7 @@ impl JoystickManagerApp {
             .windows_update
             .offers_for_hardware_id(&device.definition.hardware_id_fragment());
         let (pill_text, pill_tone) = describe_update_state(&update_state, offers.len());
+        let installing_is_allowed = vendor_release_for(device.definition.kind).vendor_driver_required;
         let mut search_clicked = false;
         let mut install_clicked = false;
 
@@ -158,13 +163,15 @@ impl JoystickManagerApp {
                 });
             });
             ui.add_space(6.0);
-            ui.label(
-                RichText::new(
-                    "Searches Windows Update for newer signed drivers that match this device. \
-                     Installing runs with the administrator rights this app already has.",
-                )
-                .color(TEXT_SECONDARY),
-            );
+            let explanation = if installing_is_allowed {
+                "Searches Windows Update for newer signed drivers that match this device. \
+                 Installing runs with the administrator rights this app already has."
+            } else {
+                "Windows' own driver already supports every axis and button of this device. \
+                 The vendor drivers Windows Update offers for it are old and are blocked by Memory \
+                 Integrity, so installing them from here is turned off."
+            };
+            ui.label(RichText::new(explanation).color(TEXT_SECONDARY));
             for offer in &offers {
                 monospace_text(ui, format!("{} · {}", offer.provider, offer.title));
             }
@@ -180,15 +187,67 @@ impl JoystickManagerApp {
                 }
                 search_clicked =
                     enabled_secondary_button(ui, !update_state.is_busy(), "Search Windows Update").clicked();
-                let can_install = !offers.is_empty() && !update_state.is_busy();
-                install_clicked = enabled_primary_button(ui, can_install, "Install update").clicked();
+                if installing_is_allowed {
+                    let can_install = !offers.is_empty() && !update_state.is_busy();
+                    install_clicked = enabled_primary_button(ui, can_install, "Install update").clicked();
+                }
             });
         });
         if search_clicked {
             self.services.windows_update.start_search();
         }
         if install_clicked {
-            self.services.windows_update.start_install();
+            let hardware_id_fragment = device.definition.hardware_id_fragment();
+            self.services.windows_update.start_install(hardware_id_fragment);
+        }
+    }
+
+    /// Offered when a driver on the device failed to load, which is what Memory Integrity does to old drivers.
+    fn show_failed_driver_repair_card(&mut self, ui: &mut Ui, device: &ConnectedDevice) {
+        let blocked_package = device
+            .interfaces
+            .iter()
+            .filter(|interface| !interface.is_working)
+            .find_map(|interface| find_installed_third_party_package(&interface.instance_id));
+        let mut repair_clicked = false;
+        card(ui, |ui| {
+            colored_caption(ui, "Driver failed to load", DANGER_TEXT);
+            card_title(ui, "Windows blocked this device's driver");
+            let explanation = match &blocked_package {
+                Some(package) => format!(
+                    "The installed vendor driver ({package}) could not start. Old drivers are usually blocked \
+                     by Memory Integrity (Core isolation). Removing it switches the device back to the Windows \
+                     driver, which supports every axis and button."
+                ),
+                None => "A driver on this device could not start. Restarting the device or reconnecting it \
+                         may help; Device Manager shows the exact error."
+                    .to_owned(),
+            };
+            ui.label(RichText::new(explanation).color(TEXT_SECONDARY));
+            ui.add_space(8.0);
+            if blocked_package.is_some() {
+                repair_clicked = primary_button(ui, "Remove blocked driver and use the Windows driver").clicked();
+            }
+        });
+        if let (true, Some(package)) = (repair_clicked, blocked_package) {
+            self.remove_blocked_driver(device, &package);
+        }
+        ui.add_space(14.0);
+    }
+
+    fn remove_blocked_driver(&mut self, device: &ConnectedDevice, package: &str) {
+        match remove_driver_package(package) {
+            Ok(()) => {
+                self.services.device_scanner.request_rescan();
+                self.show_status(
+                    format!(
+                        "Removed {package}. {} now uses the Windows driver.",
+                        device.definition.short_name
+                    ),
+                    Tone::Success,
+                );
+            }
+            Err(error) => self.show_status(format!("Could not remove {package}: {error}"), Tone::Danger),
         }
     }
 
