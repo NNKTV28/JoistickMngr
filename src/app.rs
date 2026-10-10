@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, ScrollArea, TextureHandle, ViewportCommand};
-use tray_icon::TrayIcon;
 
 use crate::app_state::SharedAppState;
 use crate::autostart::is_autostart_registered;
@@ -19,7 +18,7 @@ use crate::settings::AppSettings;
 use crate::single_instance::SingleInstanceGuard;
 use crate::system_actions::bring_window_to_front;
 use crate::theme::{BACKGROUND, BORDER, SIDEBAR_BACKGROUND, apply_cockpit_theme};
-use crate::tray::{TrayRequest, create_tray_icon};
+use crate::tray::{TrayIcon, TrayRequest, create_tray_icon};
 use crate::ui::drift_calibration::DriftMeasurement;
 use crate::ui::lighting_page::LightingEditor;
 use crate::ui::mapping_page::MappingEditor;

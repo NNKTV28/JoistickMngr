@@ -1,6 +1,6 @@
 [package]
 name = "joystick-manager"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 description = "Manage Logitech X56 HOTAS and Saitek rudder pedals on Windows"
 authors = ["NNKtv28 <support@nikicoding.com>"]
@@ -23,7 +23,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10"
 sysinfo = "0.39"
-tray-icon = "0.26"
 ureq = { version = "3", features = ["json"] }
 vigem-client = { version = "0.1.4", features = ["unstable_ds4"] }
 windows = { version = "0.62", features = [
@@ -32,9 +31,11 @@ windows = { version = "0.62", features = [
     "Win32_Storage_FileSystem",
     "Win32_Foundation",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
     "Win32_Media",
     "Win32_Security",
     "Win32_System_Com",
+    "Win32_System_LibraryLoader",
     "Win32_System_Ole",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
