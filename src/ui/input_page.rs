@@ -3,7 +3,7 @@
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::JoystickManagerApp;
-use crate::input_reader::{ControllerSnapshot, HatDirection};
+use crate::input_reader::{AxisStatistics, ControllerSnapshot, HatDirection};
 use crate::known_devices::{DeviceKind, KnownDevice};
 use crate::profiles::Profile;
 use crate::system_actions::open_game_controllers_panel;
@@ -46,7 +46,11 @@ impl JoystickManagerApp {
         show_device_panels(ui, &snapshots);
         ui.add_space(18.0);
         let active_profile = self.app_state.lock().unwrap().effective_profile();
-        show_axis_health_card(ui, &snapshots, &active_profile);
+        let statistics_per_device: Vec<Vec<AxisStatistics>> = snapshots
+            .iter()
+            .map(|(device_kind, _)| self.services.input_reader.axis_statistics(*device_kind))
+            .collect();
+        show_axis_health_card(ui, &snapshots, &statistics_per_device, &active_profile);
         ui.add_space(18.0);
         self.show_button_press_log(ui);
     }
@@ -204,7 +208,12 @@ fn show_hats(ui: &mut Ui, hat_directions: &[HatDirection]) {
     });
 }
 
-fn show_axis_health_card(ui: &mut Ui, snapshots: &[(DeviceKind, ControllerSnapshot)], active_profile: &Profile) {
+fn show_axis_health_card(
+    ui: &mut Ui,
+    snapshots: &[(DeviceKind, ControllerSnapshot)],
+    statistics_per_device: &[Vec<AxisStatistics>],
+    active_profile: &Profile,
+) {
     card(ui, |ui| {
         ui.horizontal(|ui| {
             card_title(ui, "Axis health");
@@ -222,8 +231,8 @@ fn show_axis_health_card(ui: &mut Ui, snapshots: &[(DeviceKind, ControllerSnapsh
                         caption(ui, heading);
                     }
                     ui.end_row();
-                    for (device_kind, snapshot) in snapshots {
-                        show_axis_health_rows(ui, device_kind.definition(), snapshot, active_profile);
+                    for ((device_kind, snapshot), statistics) in snapshots.iter().zip(statistics_per_device) {
+                        show_axis_health_rows(ui, device_kind.definition(), snapshot, statistics, active_profile);
                     }
                 });
         });
@@ -234,9 +243,10 @@ fn show_axis_health_rows(
     ui: &mut Ui,
     definition: &KnownDevice,
     snapshot: &ControllerSnapshot,
+    statistics: &[AxisStatistics],
     active_profile: &Profile,
 ) {
-    for (axis_index, (value, statistics)) in snapshot.axis_values.iter().zip(&snapshot.axis_statistics).enumerate() {
+    for (axis_index, (value, statistics)) in snapshot.axis_values.iter().zip(statistics).enumerate() {
         let rests_at_center = definition.axis_rests_at_center(axis_index);
         let tuned_value = active_profile
             .tuning_for_axis(definition.kind, axis_index)

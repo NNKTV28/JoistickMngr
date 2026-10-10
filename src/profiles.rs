@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::bindings::{InputBinding, VirtualControllerKind};
 use crate::known_devices::DeviceKind;
 use crate::storage::{application_data_directory, read_json_file, write_json_file};
 
@@ -119,6 +120,9 @@ pub struct Profile {
     pub joystick_lighting: LightingSetting,
     pub throttle_lighting: LightingSetting,
     pub axis_tunings: Vec<AxisTuning>,
+    /// Key, mouse and controller mappings that are active while this profile is in charge.
+    pub bindings: Vec<InputBinding>,
+    pub virtual_controller: VirtualControllerKind,
 }
 
 impl Default for Profile {
@@ -135,6 +139,8 @@ impl Profile {
             joystick_lighting: LightingSetting::default(),
             throttle_lighting: LightingSetting::default(),
             axis_tunings: Vec::new(),
+            bindings: Vec::new(),
+            virtual_controller: VirtualControllerKind::None,
         }
     }
 

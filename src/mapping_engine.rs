@@ -1,0 +1,398 @@
+//! Turns HOTAS input into keyboard, mouse and virtual controller output.
+//!
+//! The engine wakes the moment a device report arrives (no polling), works out which outputs
+//! should be held, and sends only the changes in one batch. A short timer tick exists only to keep
+//! analog mouse movement and wheel repeats flowing while nothing new is reported.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+use crate::app_state::SharedAppState;
+use crate::bindings::{
+    ControllerAxis, InputBinding, MouseButtonKind, OutputAction, ScreenAxis, VirtualControllerKind, WheelDirection,
+};
+use crate::input_injection::InputBatch;
+use crate::input_reader::{ControllerSnapshot, ControllerUpdate, InputReaderService};
+use crate::known_devices::DeviceKind;
+use crate::thread_priority::{raise_current_thread_priority, request_one_millisecond_timer_resolution};
+use crate::virtual_gamepad::{GamepadState, VirtualGamepad};
+
+const MOVEMENT_TICK: Duration = Duration::from_millis(2);
+const CONFIGURATION_REFRESH_INTERVAL: Duration = Duration::from_millis(250);
+const VIRTUAL_CONTROLLER_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+const WHEEL_REPEAT_INTERVAL: Duration = Duration::from_millis(100);
+const MOUSE_DEADZONE: f64 = 0.04;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum VirtualControllerStatus {
+    #[default]
+    NotUsed,
+    Connected(VirtualControllerKind),
+    DriverMissing,
+    Failed(String),
+}
+
+#[derive(Clone)]
+pub struct MappingEngine {
+    virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>,
+}
+
+impl MappingEngine {
+    pub fn start(app_state: SharedAppState, input_reader: &InputReaderService) -> Self {
+        let engine = Self {
+            virtual_controller_status: Arc::new(Mutex::new(VirtualControllerStatus::NotUsed)),
+        };
+        let updates = input_reader.subscribe_to_updates();
+        let status = Arc::clone(&engine.virtual_controller_status);
+        std::thread::Builder::new()
+            .name("key-mapping".into())
+            .spawn(move || MappingWorker::new(app_state, status).run(updates))
+            .expect("key mapping thread starts");
+        engine
+    }
+
+    pub fn virtual_controller_status(&self) -> VirtualControllerStatus {
+        self.virtual_controller_status.lock().unwrap().clone()
+    }
+}
+
+/// The settings the engine follows, re-read a few times per second.
+#[derive(Default)]
+struct MappingConfiguration {
+    is_enabled: bool,
+    bindings: Vec<InputBinding>,
+    virtual_controller: VirtualControllerKind,
+}
+
+/// Everything the bindings ask for right now.
+#[derive(Default)]
+struct DesiredOutputs {
+    keys: HashSet<u16>,
+    mouse_buttons: HashSet<MouseButtonKind>,
+    wheel_bindings: Vec<(usize, WheelDirection)>,
+    mouse_velocity: (f64, f64),
+    gamepad: GamepadState,
+}
+
+struct MappingWorker {
+    app_state: SharedAppState,
+    virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>,
+    configuration: MappingConfiguration,
+    last_configuration_refresh: Instant,
+    snapshots: HashMap<DeviceKind, ControllerSnapshot>,
+    held_keys: HashSet<u16>,
+    held_mouse_buttons: HashSet<MouseButtonKind>,
+    last_wheel_notch: HashMap<usize, Instant>,
+    mouse_movement_remainder: (f64, f64),
+    last_iteration: Instant,
+    virtual_gamepad: Option<VirtualGamepad>,
+    last_sent_gamepad_state: Option<GamepadState>,
+    last_virtual_controller_attempt: Option<Instant>,
+}
+
+impl MappingWorker {
+    fn new(app_state: SharedAppState, virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>) -> Self {
+        Self {
+            app_state,
+            virtual_controller_status,
+            configuration: MappingConfiguration::default(),
+            last_configuration_refresh: Instant::now() - CONFIGURATION_REFRESH_INTERVAL,
+            snapshots: HashMap::new(),
+            held_keys: HashSet::new(),
+            held_mouse_buttons: HashSet::new(),
+            last_wheel_notch: HashMap::new(),
+            mouse_movement_remainder: (0.0, 0.0),
+            last_iteration: Instant::now(),
+            virtual_gamepad: None,
+            last_sent_gamepad_state: None,
+            last_virtual_controller_attempt: None,
+        }
+    }
+
+    fn run(mut self, updates: Receiver<ControllerUpdate>) {
+        raise_current_thread_priority();
+        request_one_millisecond_timer_resolution();
+        loop {
+            match updates.recv_timeout(MOVEMENT_TICK) {
+                Ok(update) => self.take_update_and_any_queued(update, &updates),
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
+            self.refresh_configuration_when_due();
+            self.keep_virtual_controller_matching_configuration();
+            self.apply_bindings();
+        }
+        self.release_everything();
+    }
+
+    /// Several reports may have queued up; only the newest state of each device matters.
+    fn take_update_and_any_queued(&mut self, first_update: ControllerUpdate, updates: &Receiver<ControllerUpdate>) {
+        self.snapshots.insert(first_update.device_kind, first_update.snapshot);
+        while let Ok(update) = updates.try_recv() {
+            self.snapshots.insert(update.device_kind, update.snapshot);
+        }
+    }
+
+    fn refresh_configuration_when_due(&mut self) {
+        if self.last_configuration_refresh.elapsed() < CONFIGURATION_REFRESH_INTERVAL {
+            return;
+        }
+        let state = self.app_state.lock().unwrap();
+        let profile = state.effective_profile();
+        self.configuration = MappingConfiguration {
+            is_enabled: state.settings.mapping_enabled,
+            bindings: profile
+                .bindings
+                .into_iter()
+                .filter(InputBinding::is_consistent)
+                .collect(),
+            virtual_controller: profile.virtual_controller,
+        };
+        self.last_configuration_refresh = Instant::now();
+    }
+
+    fn wanted_virtual_controller(&self) -> VirtualControllerKind {
+        if self.configuration.is_enabled {
+            self.configuration.virtual_controller
+        } else {
+            VirtualControllerKind::None
+        }
+    }
+
+    fn keep_virtual_controller_matching_configuration(&mut self) {
+        let wanted_kind = self.wanted_virtual_controller();
+        let current_kind = self.virtual_gamepad.as_ref().map(VirtualGamepad::kind);
+        if current_kind == Some(wanted_kind) {
+            return;
+        }
+        if current_kind.is_some() {
+            self.virtual_gamepad = None;
+            self.last_sent_gamepad_state = None;
+            self.last_virtual_controller_attempt = None;
+        }
+        if wanted_kind == VirtualControllerKind::None {
+            self.set_virtual_controller_status(VirtualControllerStatus::NotUsed);
+            return;
+        }
+        let attempted_recently = self
+            .last_virtual_controller_attempt
+            .is_some_and(|attempt| attempt.elapsed() < VIRTUAL_CONTROLLER_RETRY_INTERVAL);
+        if !attempted_recently {
+            self.connect_virtual_controller(wanted_kind);
+        }
+    }
+
+    fn connect_virtual_controller(&mut self, kind: VirtualControllerKind) {
+        self.last_virtual_controller_attempt = Some(Instant::now());
+        match VirtualGamepad::connect(kind) {
+            Ok(gamepad) => {
+                self.virtual_gamepad = Some(gamepad);
+                self.set_virtual_controller_status(VirtualControllerStatus::Connected(kind));
+            }
+            Err(message) if message.contains("not installed") => {
+                self.set_virtual_controller_status(VirtualControllerStatus::DriverMissing);
+            }
+            Err(message) => self.set_virtual_controller_status(VirtualControllerStatus::Failed(message)),
+        }
+    }
+
+    fn set_virtual_controller_status(&self, status: VirtualControllerStatus) {
+        *self.virtual_controller_status.lock().unwrap() = status;
+    }
+
+    fn apply_bindings(&mut self) {
+        let seconds_since_last_iteration = self.last_iteration.elapsed().as_secs_f64();
+        self.last_iteration = Instant::now();
+        let desired = if self.configuration.is_enabled {
+            collect_desired_outputs(&self.configuration.bindings, &self.snapshots)
+        } else {
+            DesiredOutputs::default()
+        };
+
+        let mut batch = InputBatch::default();
+        self.update_held_keys(&desired.keys, &mut batch);
+        self.update_held_mouse_buttons(&desired.mouse_buttons, &mut batch);
+        self.update_wheel_repeats(&desired.wheel_bindings, &mut batch);
+        self.add_mouse_movement(desired.mouse_velocity, seconds_since_last_iteration, &mut batch);
+        batch.send();
+        self.send_gamepad_state_if_changed(desired.gamepad);
+    }
+
+    fn update_held_keys(&mut self, wanted_keys: &HashSet<u16>, batch: &mut InputBatch) {
+        for released_key in self.held_keys.difference(wanted_keys) {
+            batch.add_key(*released_key, false);
+        }
+        for pressed_key in wanted_keys.difference(&self.held_keys) {
+            batch.add_key(*pressed_key, true);
+        }
+        self.held_keys = wanted_keys.clone();
+    }
+
+    fn update_held_mouse_buttons(&mut self, wanted_buttons: &HashSet<MouseButtonKind>, batch: &mut InputBatch) {
+        for released_button in self.held_mouse_buttons.difference(wanted_buttons) {
+            batch.add_mouse_button(*released_button, false);
+        }
+        for pressed_button in wanted_buttons.difference(&self.held_mouse_buttons) {
+            batch.add_mouse_button(*pressed_button, true);
+        }
+        self.held_mouse_buttons = wanted_buttons.clone();
+    }
+
+    /// One notch when the control is first used, then one every 100 ms while it stays held.
+    fn update_wheel_repeats(&mut self, active_wheel_bindings: &[(usize, WheelDirection)], batch: &mut InputBatch) {
+        let active_indexes: HashSet<usize> = active_wheel_bindings.iter().map(|(index, _)| *index).collect();
+        self.last_wheel_notch.retain(|index, _| active_indexes.contains(index));
+        for (binding_index, direction) in active_wheel_bindings {
+            let is_due = self
+                .last_wheel_notch
+                .get(binding_index)
+                .is_none_or(|last_notch| last_notch.elapsed() >= WHEEL_REPEAT_INTERVAL);
+            if is_due {
+                batch.add_wheel_notch(*direction);
+                self.last_wheel_notch.insert(*binding_index, Instant::now());
+            }
+        }
+    }
+
+    /// Moves the pointer by velocity × elapsed time, carrying fractions of a pixel to the next step.
+    fn add_mouse_movement(&mut self, velocity: (f64, f64), elapsed_seconds: f64, batch: &mut InputBatch) {
+        let horizontal = self.mouse_movement_remainder.0 + velocity.0 * elapsed_seconds;
+        let vertical = self.mouse_movement_remainder.1 + velocity.1 * elapsed_seconds;
+        let whole_horizontal = horizontal.trunc();
+        let whole_vertical = vertical.trunc();
+        self.mouse_movement_remainder = (horizontal - whole_horizontal, vertical - whole_vertical);
+        if velocity == (0.0, 0.0) {
+            self.mouse_movement_remainder = (0.0, 0.0);
+        }
+        batch.add_mouse_movement(whole_horizontal as i32, whole_vertical as i32);
+    }
+
+    fn send_gamepad_state_if_changed(&mut self, gamepad_state: GamepadState) {
+        let Some(virtual_gamepad) = self.virtual_gamepad.as_mut() else {
+            return;
+        };
+        if self.last_sent_gamepad_state.as_ref() == Some(&gamepad_state) {
+            return;
+        }
+        if let Err(message) = virtual_gamepad.send_state(&gamepad_state) {
+            self.virtual_gamepad = None;
+            self.set_virtual_controller_status(VirtualControllerStatus::Failed(message));
+            return;
+        }
+        self.last_sent_gamepad_state = Some(gamepad_state);
+    }
+
+    fn release_everything(&mut self) {
+        let mut batch = InputBatch::default();
+        self.update_held_keys(&HashSet::new(), &mut batch);
+        self.update_held_mouse_buttons(&HashSet::new(), &mut batch);
+        batch.send();
+        self.virtual_gamepad = None;
+    }
+}
+
+fn collect_desired_outputs(
+    bindings: &[InputBinding],
+    snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+) -> DesiredOutputs {
+    let mut desired = DesiredOutputs::default();
+    for (binding_index, binding) in bindings.iter().enumerate() {
+        let Some(snapshot) = snapshots.get(&binding.source.device()) else {
+            continue;
+        };
+        if binding.source.is_analog() {
+            if let Some(value) = binding.source.analog_value(snapshot) {
+                add_analog_output(&mut desired, binding.action, value);
+            }
+        } else if binding.source.is_active(snapshot) {
+            add_switch_output(&mut desired, binding_index, binding.action);
+        }
+    }
+    desired
+}
+
+fn add_analog_output(desired: &mut DesiredOutputs, action: OutputAction, axis_value: f64) {
+    match action {
+        OutputAction::MouseMove {
+            screen_axis,
+            pixels_per_second,
+        } => {
+            let velocity = deflection_outside_deadzone(axis_value) * f64::from(pixels_per_second);
+            match screen_axis {
+                ScreenAxis::Horizontal => desired.mouse_velocity.0 += velocity,
+                ScreenAxis::Vertical => desired.mouse_velocity.1 += velocity,
+            }
+        }
+        OutputAction::ControllerAxis { axis, inverted } => {
+            desired
+                .gamepad
+                .set_axis(axis, controller_axis_value(axis, axis_value, inverted));
+        }
+        _ => {}
+    }
+}
+
+fn add_switch_output(desired: &mut DesiredOutputs, binding_index: usize, action: OutputAction) {
+    match action {
+        OutputAction::Key { virtual_key } => {
+            desired.keys.insert(virtual_key);
+        }
+        OutputAction::MouseButton { button } => {
+            desired.mouse_buttons.insert(button);
+        }
+        OutputAction::MouseWheel { direction } => desired.wheel_bindings.push((binding_index, direction)),
+        OutputAction::ControllerButton { button } => {
+            desired.gamepad.pressed_buttons.insert(button);
+        }
+        _ => {}
+    }
+}
+
+/// Position of a centred axis as -1..=1, with a small deadzone so a resting stick does not drift the pointer.
+fn deflection_outside_deadzone(axis_value: f64) -> f64 {
+    let deflection = axis_value * 2.0 - 1.0;
+    if deflection.abs() <= MOUSE_DEADZONE {
+        return 0.0;
+    }
+    deflection.signum() * (deflection.abs() - MOUSE_DEADZONE) / (1.0 - MOUSE_DEADZONE)
+}
+
+/// Converts a HOTAS axis (0..=1, down/forward-is-larger for Y) to a controller axis value.
+fn controller_axis_value(axis: ControllerAxis, axis_value: f64, inverted: bool) -> f32 {
+    let is_trigger = matches!(axis, ControllerAxis::LeftTrigger | ControllerAxis::RightTrigger);
+    if is_trigger {
+        let trigger = if inverted { 1.0 - axis_value } else { axis_value };
+        return trigger as f32;
+    }
+    let is_vertical = matches!(axis, ControllerAxis::LeftStickY | ControllerAxis::RightStickY);
+    let mut stick = axis_value * 2.0 - 1.0;
+    if is_vertical {
+        stick = -stick;
+    }
+    if inverted {
+        stick = -stick;
+    }
+    stick as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stick_pushed_forward_moves_controller_stick_up() {
+        assert_eq!(controller_axis_value(ControllerAxis::LeftStickY, 0.0, false), 1.0);
+    }
+
+    #[test]
+    fn resting_axis_inside_deadzone_does_not_move_the_mouse() {
+        assert_eq!(deflection_outside_deadzone(0.51), 0.0);
+    }
+
+    #[test]
+    fn inverted_trigger_reads_full_at_zero() {
+        assert_eq!(controller_axis_value(ControllerAxis::RightTrigger, 0.0, true), 1.0);
+    }
+}

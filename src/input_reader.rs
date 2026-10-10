@@ -1,18 +1,20 @@
-//! Reads live axes, buttons and hats from the peripherals through Windows.Gaming.Input.
+//! Reads live axes, buttons and hats from the peripherals through their HID interfaces.
+//! Reading continues while games have focus, so key mapping can use the same data.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::ffi::CString;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use windows::Gaming::Input::{GameControllerSwitchPosition, RawGameController};
-use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use crate::hid_controller::{
+    AxisLayout, GAMEPAD_USAGE, GENERIC_DESKTOP_PAGE, HidController, JOYSTICK_USAGE, RawControllerState,
+};
+use crate::known_devices::{DeviceKind, KnownDevice, find_known_device};
+use crate::thread_priority::raise_current_thread_priority;
 
-use crate::known_devices::{DeviceKind, find_known_device};
-
-const ACTIVE_POLL_INTERVAL: Duration = Duration::from_millis(10);
-const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const CONTROLLER_LIST_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+const DEVICE_DISCOVERY_INTERVAL: Duration = Duration::from_secs(2);
 const NOISE_WINDOW_SAMPLE_COUNT: usize = 200;
 const BUTTON_EVENT_LOG_LIMIT: usize = 40;
 
@@ -30,16 +32,17 @@ pub enum HatDirection {
 }
 
 impl HatDirection {
-    fn from_switch_position(position: GameControllerSwitchPosition) -> Self {
+    /// Converts a hat position in eighths clockwise from up (0 = up, 2 = right…), or `None` for centred.
+    fn from_hat_position(position: Option<u8>) -> Self {
         match position {
-            GameControllerSwitchPosition::Up => HatDirection::Up,
-            GameControllerSwitchPosition::UpRight => HatDirection::UpRight,
-            GameControllerSwitchPosition::Right => HatDirection::Right,
-            GameControllerSwitchPosition::DownRight => HatDirection::DownRight,
-            GameControllerSwitchPosition::Down => HatDirection::Down,
-            GameControllerSwitchPosition::DownLeft => HatDirection::DownLeft,
-            GameControllerSwitchPosition::Left => HatDirection::Left,
-            GameControllerSwitchPosition::UpLeft => HatDirection::UpLeft,
+            Some(0) => HatDirection::Up,
+            Some(1) => HatDirection::UpRight,
+            Some(2) => HatDirection::Right,
+            Some(3) => HatDirection::DownRight,
+            Some(4) => HatDirection::Down,
+            Some(5) => HatDirection::DownLeft,
+            Some(6) => HatDirection::Left,
+            Some(7) => HatDirection::UpLeft,
             _ => HatDirection::Centered,
         }
     }
@@ -110,12 +113,19 @@ impl AxisStatistics {
     }
 }
 
+/// The latest state of every control on one device. Cheap to copy, so it can be sent with every report.
 #[derive(Clone, Debug, Default)]
 pub struct ControllerSnapshot {
     pub axis_values: Vec<f64>,
     pub button_states: Vec<bool>,
     pub hat_directions: Vec<HatDirection>,
-    pub axis_statistics: Vec<AxisStatistics>,
+}
+
+/// Sent to subscribers the moment a device reports new input.
+#[derive(Clone, Debug)]
+pub struct ControllerUpdate {
+    pub device_kind: DeviceKind,
+    pub snapshot: ControllerSnapshot,
 }
 
 impl ControllerSnapshot {
@@ -124,6 +134,25 @@ impl ControllerSnapshot {
         let any_axis_away_from_zero = self.axis_values.iter().any(|value| *value != 0.0);
         let any_button_pressed = self.button_states.iter().any(|is_pressed| *is_pressed);
         any_axis_away_from_zero || any_button_pressed
+    }
+
+    pub fn axis_value(&self, axis_index: usize) -> Option<f64> {
+        self.axis_values.get(axis_index).copied()
+    }
+
+    pub fn is_button_pressed(&self, button_number: usize) -> bool {
+        button_number
+            .checked_sub(1)
+            .and_then(|index| self.button_states.get(index))
+            .copied()
+            .unwrap_or(false)
+    }
+
+    pub fn hat_direction(&self, hat_index: usize) -> HatDirection {
+        self.hat_directions
+            .get(hat_index)
+            .copied()
+            .unwrap_or(HatDirection::Centered)
     }
 }
 
@@ -137,13 +166,15 @@ pub struct ButtonPressEvent {
 #[derive(Default)]
 struct SharedInputState {
     snapshots: HashMap<DeviceKind, ControllerSnapshot>,
+    axis_statistics: HashMap<DeviceKind, Vec<AxisStatistics>>,
     button_press_log: VecDeque<ButtonPressEvent>,
+    update_subscribers: Vec<Sender<ControllerUpdate>>,
 }
 
 #[derive(Clone)]
 pub struct InputReaderService {
     shared_state: Arc<Mutex<SharedInputState>>,
-    polling_enabled: Arc<AtomicBool>,
+    devices_being_read: Arc<Mutex<HashSet<DeviceKind>>>,
     reset_requested: Arc<AtomicBool>,
 }
 
@@ -151,19 +182,35 @@ impl InputReaderService {
     pub fn start() -> Self {
         let service = Self {
             shared_state: Arc::new(Mutex::new(SharedInputState::default())),
-            polling_enabled: Arc::new(AtomicBool::new(true)),
+            devices_being_read: Arc::new(Mutex::new(HashSet::new())),
             reset_requested: Arc::new(AtomicBool::new(false)),
         };
         let thread_service = service.clone();
         std::thread::Builder::new()
-            .name("input-reader".into())
-            .spawn(move || thread_service.run_polling_loop())
-            .expect("input reader thread starts");
+            .name("input-discovery".into())
+            .spawn(move || thread_service.run_discovery_loop())
+            .expect("input discovery thread starts");
         service
     }
 
     pub fn snapshot(&self, device_kind: DeviceKind) -> Option<ControllerSnapshot> {
         self.shared_state.lock().unwrap().snapshots.get(&device_kind).cloned()
+    }
+
+    pub fn axis_statistics(&self, device_kind: DeviceKind) -> Vec<AxisStatistics> {
+        let shared_state = self.shared_state.lock().unwrap();
+        shared_state
+            .axis_statistics
+            .get(&device_kind)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Every report from every device, delivered as soon as it is read.
+    pub fn subscribe_to_updates(&self) -> Receiver<ControllerUpdate> {
+        let (sender, receiver) = mpsc::channel();
+        self.shared_state.lock().unwrap().update_subscribers.push(sender);
+        receiver
     }
 
     pub fn button_press_log(&self) -> Vec<ButtonPressEvent> {
@@ -176,112 +223,123 @@ impl InputReaderService {
             .collect()
     }
 
-    /// Fast polling is only needed while a page shows live input.
-    pub fn set_polling_enabled(&self, enabled: bool) {
-        self.polling_enabled.store(enabled, Ordering::Relaxed);
-    }
-
     pub fn reset_statistics(&self) {
         self.reset_requested.store(true, Ordering::Relaxed);
     }
 
-    fn run_polling_loop(&self) {
-        // SAFETY: COM/WinRT is initialised once for this dedicated thread.
-        let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
-        let mut controllers: HashMap<DeviceKind, RawGameController> = HashMap::new();
-        let mut last_controller_refresh: Option<Instant> = None;
-
+    /// Looks for newly plugged-in controllers and starts one reading thread per controller.
+    fn run_discovery_loop(&self) {
+        let Ok(mut hid_api) = hidapi::HidApi::new() else { return };
         loop {
-            if last_controller_refresh.is_none_or(|refreshed| refreshed.elapsed() >= CONTROLLER_LIST_REFRESH_INTERVAL) {
-                controllers = find_known_controllers();
-                last_controller_refresh = Some(Instant::now());
-            }
             if self.reset_requested.swap(false, Ordering::Relaxed) {
                 self.clear_statistics_and_log();
             }
-            self.read_all_controllers(&controllers);
-
-            let poll_interval = if self.polling_enabled.load(Ordering::Relaxed) {
-                ACTIVE_POLL_INTERVAL
-            } else {
-                IDLE_POLL_INTERVAL
-            };
-            std::thread::sleep(poll_interval);
+            let _ = hid_api.refresh_devices();
+            for (definition, device_path) in find_controller_interfaces(&hid_api) {
+                if self.devices_being_read.lock().unwrap().insert(definition.kind) {
+                    self.spawn_reader(definition, device_path);
+                }
+            }
+            std::thread::sleep(DEVICE_DISCOVERY_INTERVAL);
         }
+    }
+
+    fn spawn_reader(&self, definition: &'static KnownDevice, device_path: CString) {
+        let service = self.clone();
+        let spawn_result = std::thread::Builder::new()
+            .name(format!("input-{}", definition.short_name))
+            .spawn(move || {
+                service.read_until_disconnected(definition, &device_path);
+                service.forget_device(definition.kind);
+            });
+        if spawn_result.is_err() {
+            self.devices_being_read.lock().unwrap().remove(&definition.kind);
+        }
+    }
+
+    fn read_until_disconnected(&self, definition: &'static KnownDevice, device_path: &CString) {
+        raise_current_thread_priority();
+        let Ok(controller) = HidController::open(device_path) else {
+            return;
+        };
+        let axis_order = order_axes_like_definition(controller.axis_layouts(), definition);
+        while let Ok(raw_state) = controller.read_state() {
+            self.store_reading(definition.kind, reorder_axes(raw_state, &axis_order));
+        }
+    }
+
+    fn forget_device(&self, device_kind: DeviceKind) {
+        let mut shared_state = self.shared_state.lock().unwrap();
+        shared_state.snapshots.remove(&device_kind);
+        shared_state.axis_statistics.remove(&device_kind);
+        drop(shared_state);
+        self.devices_being_read.lock().unwrap().remove(&device_kind);
+    }
+
+    /// Hands the new state to subscribers first (they drive key mapping), then updates the bookkeeping.
+    fn store_reading(&self, device_kind: DeviceKind, raw_state: RawControllerState) {
+        let snapshot = snapshot_from_raw_state(raw_state);
+        let mut shared_state = self.shared_state.lock().unwrap();
+        notify_subscribers(&mut shared_state.update_subscribers, device_kind, &snapshot);
+
+        let previous_buttons = shared_state
+            .snapshots
+            .get(&device_kind)
+            .map(|previous| previous.button_states.clone());
+        let new_presses = find_new_button_presses(&previous_buttons.unwrap_or_default(), &snapshot.button_states);
+        for button_number in new_presses {
+            log_button_press(&mut shared_state.button_press_log, device_kind, button_number);
+        }
+        let statistics = shared_state.axis_statistics.entry(device_kind).or_default();
+        record_axis_statistics(statistics, &snapshot.axis_values);
+        shared_state.snapshots.insert(device_kind, snapshot);
     }
 
     fn clear_statistics_and_log(&self) {
         let mut shared_state = self.shared_state.lock().unwrap();
         shared_state.button_press_log.clear();
-        for snapshot in shared_state.snapshots.values_mut() {
-            snapshot
-                .axis_statistics
-                .iter_mut()
-                .for_each(|statistics| *statistics = AxisStatistics::default());
-        }
-    }
-
-    fn read_all_controllers(&self, controllers: &HashMap<DeviceKind, RawGameController>) {
-        let mut shared_state = self.shared_state.lock().unwrap();
-        shared_state
-            .snapshots
-            .retain(|device_kind, _| controllers.contains_key(device_kind));
-        for (device_kind, controller) in controllers {
-            let Ok(reading) = read_controller(controller) else {
-                continue;
-            };
-            let previous_snapshot = shared_state.snapshots.remove(device_kind).unwrap_or_default();
-            let new_presses = find_new_button_presses(&previous_snapshot.button_states, &reading.button_states);
-            let updated_snapshot = merge_reading_into_snapshot(previous_snapshot, reading);
-            shared_state.snapshots.insert(*device_kind, updated_snapshot);
-            for button_number in new_presses {
-                log_button_press(&mut shared_state.button_press_log, *device_kind, button_number);
-            }
-        }
+        shared_state.axis_statistics.clear();
     }
 }
 
-struct ControllerReading {
-    axis_values: Vec<f64>,
-    button_states: Vec<bool>,
-    hat_directions: Vec<HatDirection>,
+/// The game controller interface of each known device that is plugged in.
+fn find_controller_interfaces(hid_api: &hidapi::HidApi) -> Vec<(&'static KnownDevice, CString)> {
+    hid_api
+        .device_list()
+        .filter(|device| {
+            device.usage_page() == GENERIC_DESKTOP_PAGE
+                && (device.usage() == JOYSTICK_USAGE || device.usage() == GAMEPAD_USAGE)
+        })
+        .filter_map(|device| {
+            let definition = find_known_device(device.vendor_id(), device.product_id())?;
+            Some((definition, device.path().to_owned()))
+        })
+        .collect()
 }
 
-fn find_known_controllers() -> HashMap<DeviceKind, RawGameController> {
-    let mut controllers_by_kind: HashMap<DeviceKind, RawGameController> = HashMap::new();
-    let Ok(all_controllers) = RawGameController::RawGameControllers() else {
-        return controllers_by_kind;
-    };
-    for controller in &all_controllers {
-        let (Ok(vendor_id), Ok(product_id)) = (controller.HardwareVendorId(), controller.HardwareProductId()) else {
-            continue;
-        };
-        let Some(definition) = find_known_device(vendor_id, product_id) else {
-            continue;
-        };
-        let has_more_axes_than_existing = controllers_by_kind
-            .get(&definition.kind)
-            .is_none_or(|existing| controller.AxisCount().unwrap_or(0) > existing.AxisCount().unwrap_or(0));
-        if has_more_axes_than_existing {
-            controllers_by_kind.insert(definition.kind, controller);
+/// Positions of the device's axes in the order the device definition lists them, so axis numbers
+/// in profiles always mean the same physical control. Axes the definition does not know come last.
+fn order_axes_like_definition(axis_layouts: &[AxisLayout], definition: &KnownDevice) -> Vec<usize> {
+    let mut unused_positions: Vec<usize> = (0..axis_layouts.len()).collect();
+    let mut ordered_positions = Vec::with_capacity(axis_layouts.len());
+    for defined_axis in definition.axes {
+        let matching = unused_positions
+            .iter()
+            .position(|position| axis_layouts[*position].usage == defined_axis.hid_usage);
+        if let Some(index_in_unused) = matching {
+            ordered_positions.push(unused_positions.remove(index_in_unused));
         }
     }
-    controllers_by_kind
+    ordered_positions.extend(unused_positions);
+    ordered_positions
 }
 
-fn read_controller(controller: &RawGameController) -> windows::core::Result<ControllerReading> {
-    let mut button_states = vec![false; controller.ButtonCount()? as usize];
-    let mut switch_positions = vec![GameControllerSwitchPosition::Center; controller.SwitchCount()? as usize];
-    let mut axis_values = vec![0.0; controller.AxisCount()? as usize];
-    controller.GetCurrentReading(&mut button_states, &mut switch_positions, &mut axis_values)?;
-    Ok(ControllerReading {
-        axis_values,
-        button_states,
-        hat_directions: switch_positions
-            .into_iter()
-            .map(HatDirection::from_switch_position)
-            .collect(),
-    })
+fn reorder_axes(mut raw_state: RawControllerState, axis_order: &[usize]) -> RawControllerState {
+    raw_state.axis_values = axis_order
+        .iter()
+        .filter_map(|position| raw_state.axis_values.get(*position).copied())
+        .collect();
+    raw_state
 }
 
 fn find_new_button_presses(previous_states: &[bool], current_states: &[bool]) -> Vec<usize> {
@@ -297,17 +355,38 @@ fn find_new_button_presses(previous_states: &[bool], current_states: &[bool]) ->
         .collect()
 }
 
-fn merge_reading_into_snapshot(mut snapshot: ControllerSnapshot, reading: ControllerReading) -> ControllerSnapshot {
-    snapshot
-        .axis_statistics
-        .resize(reading.axis_values.len(), AxisStatistics::default());
-    for (statistics, value) in snapshot.axis_statistics.iter_mut().zip(&reading.axis_values) {
-        statistics.record(*value);
+fn snapshot_from_raw_state(raw_state: RawControllerState) -> ControllerSnapshot {
+    ControllerSnapshot {
+        axis_values: raw_state.axis_values,
+        button_states: raw_state.button_states,
+        hat_directions: raw_state
+            .hat_positions
+            .into_iter()
+            .map(HatDirection::from_hat_position)
+            .collect(),
     }
-    snapshot.axis_values = reading.axis_values;
-    snapshot.button_states = reading.button_states;
-    snapshot.hat_directions = reading.hat_directions;
-    snapshot
+}
+
+fn record_axis_statistics(statistics: &mut Vec<AxisStatistics>, axis_values: &[f64]) {
+    statistics.resize(axis_values.len(), AxisStatistics::default());
+    for (axis_statistics, value) in statistics.iter_mut().zip(axis_values) {
+        axis_statistics.record(*value);
+    }
+}
+
+/// Sends the update to every subscriber and forgets the ones that have gone away.
+fn notify_subscribers(
+    subscribers: &mut Vec<Sender<ControllerUpdate>>,
+    device_kind: DeviceKind,
+    snapshot: &ControllerSnapshot,
+) {
+    subscribers.retain(|subscriber| {
+        let update = ControllerUpdate {
+            device_kind,
+            snapshot: snapshot.clone(),
+        };
+        subscriber.send(update).is_ok()
+    });
 }
 
 fn log_button_press(log: &mut VecDeque<ButtonPressEvent>, device_kind: DeviceKind, button_number: usize) {

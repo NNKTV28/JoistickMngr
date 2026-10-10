@@ -47,6 +47,7 @@ impl JoystickManagerApp {
         caption(ui, "Tools");
         self.show_navigation_link(ui, "Lighting", Page::Lighting);
         self.show_navigation_link(ui, "Input tester", Page::InputTester);
+        self.show_navigation_link(ui, "Key mapping", Page::KeyMapping);
         self.show_navigation_link(ui, "Profiles", Page::Profiles);
         self.show_navigation_link(ui, "Settings", Page::Settings);
 

@@ -12,8 +12,12 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
   with presets, a "link both units" switch and changes shown on the hardware live.
 - **Input tester** – live axes, buttons and hats at 100 Hz, axis jitter measurement, range recording and a
   button press log to catch ghost inputs.
-- **Profiles** – named setups with lighting and axis tuning, activated manually or automatically when a game
-  starts. Import and export as JSON.
+- **Key mapping** – bind any button, hat or axis to a keyboard key, mouse click, wheel or pointer movement, or to
+  a virtual Xbox or PlayStation (DualShock 4) controller. Mapping reads the devices' HID reports directly and
+  reacts to each report the moment it arrives, so it keeps working while a game has focus. The virtual
+  controller needs the free [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver.
+- **Profiles** – named setups with lighting, axis tuning and key mapping, activated manually or automatically
+  when a game starts. Import and export as JSON.
 - **USB power saving** – turns off the Windows power saving that is a common cause of X56 disconnects.
 - **Tray and start-up** – closes to the notification area, starts with Windows (elevated, via Task Scheduler),
   dims the lights when the PC is idle.

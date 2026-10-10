@@ -12,6 +12,7 @@ use crate::device_scanner::DeviceScannerService;
 use crate::input_reader::InputReaderService;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingService;
+use crate::mapping_engine::MappingEngine;
 use crate::product_images::ProductImages;
 use crate::settings::AppSettings;
 use crate::single_instance::SingleInstanceGuard;
@@ -19,6 +20,7 @@ use crate::system_actions::bring_window_to_front;
 use crate::theme::{BACKGROUND, BORDER, SIDEBAR_BACKGROUND, apply_cockpit_theme};
 use crate::tray::{TrayRequest, create_tray_icon};
 use crate::ui::lighting_page::LightingEditor;
+use crate::ui::mapping_page::MappingEditor;
 use crate::ui::profiles_page::ProfileEditor;
 use crate::ui::widgets::Tone;
 use crate::windows_update::WindowsUpdateService;
@@ -37,13 +39,14 @@ pub enum Page {
     Device(DeviceKind),
     Lighting,
     InputTester,
+    KeyMapping,
     Profiles,
     Settings,
 }
 
 impl Page {
     fn shows_live_input(self) -> bool {
-        matches!(self, Page::Overview | Page::InputTester)
+        matches!(self, Page::Overview | Page::InputTester | Page::KeyMapping)
     }
 }
 
@@ -61,6 +64,7 @@ pub struct StatusBanner {
 }
 
 pub struct BackgroundServices {
+    pub mapping_engine: MappingEngine,
     pub device_scanner: DeviceScannerService,
     pub input_reader: InputReaderService,
     pub lighting: LightingService,
@@ -73,6 +77,7 @@ pub struct JoystickManagerApp {
     pub(crate) current_page: Page,
     pub(crate) device_page_tab: DevicePageTab,
     pub(crate) lighting_editor: LightingEditor,
+    pub(crate) mapping_editor: MappingEditor,
     pub(crate) profile_editor: ProfileEditor,
     pub(crate) autostart_registered: bool,
     product_images: ProductImages,
@@ -107,6 +112,7 @@ impl JoystickManagerApp {
         let profile_editor = ProfileEditor::new(&app_state.lock().unwrap());
         Self {
             lighting_editor: LightingEditor::from_profile(&effective_profile),
+            mapping_editor: MappingEditor::default(),
             profile_editor,
             app_state,
             services,
@@ -225,6 +231,7 @@ impl JoystickManagerApp {
             Page::Device(device_kind) => self.show_device_page(ui, device_kind),
             Page::Lighting => self.show_lighting_page(ui),
             Page::InputTester => self.show_input_page(ui),
+            Page::KeyMapping => self.show_mapping_page(ui),
             Page::Profiles => self.show_profiles_page(ui),
             Page::Settings => self.show_settings_page(ui),
         }
@@ -263,8 +270,6 @@ impl eframe::App for JoystickManagerApp {
     fn logic(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_tray_requests(context);
         self.handle_close_request(context);
-        let needs_fast_input = self.window_is_visible && self.current_page.shows_live_input();
-        self.services.input_reader.set_polling_enabled(needs_fast_input);
         self.schedule_next_refresh(context);
     }
 

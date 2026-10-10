@@ -30,6 +30,8 @@ impl DeviceKind {
 
 #[derive(Debug)]
 pub struct AxisDefinition {
+    /// HID usage on the Generic Desktop page (0x30 = X … 0x36 = Slider) the axis is reported as.
+    pub hid_usage: u16,
     pub name: &'static str,
     /// Centred axes rest in the middle (stick, rudder); others rest at one end (throttle, brakes).
     pub rests_at_center: bool,
@@ -68,19 +70,30 @@ impl KnownDevice {
     }
 }
 
-const fn centered_axis(name: &'static str) -> AxisDefinition {
+const fn centered_axis(hid_usage: u16, name: &'static str) -> AxisDefinition {
     AxisDefinition {
+        hid_usage,
         name,
         rests_at_center: true,
     }
 }
 
-const fn end_resting_axis(name: &'static str) -> AxisDefinition {
+const fn end_resting_axis(hid_usage: u16, name: &'static str) -> AxisDefinition {
     AxisDefinition {
+        hid_usage,
         name,
         rests_at_center: false,
     }
 }
+
+const USAGE_X: u16 = 0x30;
+const USAGE_Y: u16 = 0x31;
+const USAGE_Z: u16 = 0x32;
+const USAGE_RX: u16 = 0x33;
+const USAGE_RY: u16 = 0x34;
+const USAGE_RZ: u16 = 0x35;
+const USAGE_SLIDER: u16 = 0x36;
+const USAGE_DIAL: u16 = 0x37;
 
 pub const LOGITECH_SAITEK_VENDOR_ID: u16 = 0x0738;
 pub const SAITEK_VENDOR_ID: u16 = 0x06A3;
@@ -94,11 +107,11 @@ pub static KNOWN_DEVICES: [KnownDevice; 3] = [
         product_id: 0x2221,
         supports_rgb_lighting: true,
         axes: &[
-            centered_axis("Roll (X)"),
-            centered_axis("Pitch (Y)"),
-            centered_axis("Thumb X"),
-            centered_axis("Thumb Y"),
-            centered_axis("Twist"),
+            centered_axis(USAGE_X, "Roll (X)"),
+            centered_axis(USAGE_Y, "Pitch (Y)"),
+            centered_axis(USAGE_RX, "Thumb X"),
+            centered_axis(USAGE_RY, "Thumb Y"),
+            centered_axis(USAGE_RZ, "Twist"),
         ],
     },
     KnownDevice {
@@ -109,14 +122,14 @@ pub static KNOWN_DEVICES: [KnownDevice; 3] = [
         product_id: 0xA221,
         supports_rgb_lighting: true,
         axes: &[
-            end_resting_axis("Throttle L"),
-            end_resting_axis("Throttle R"),
-            end_resting_axis("Rotary F"),
-            centered_axis("Mini stick X"),
-            centered_axis("Mini stick Y"),
-            end_resting_axis("Rotary G"),
-            end_resting_axis("RTY3"),
-            end_resting_axis("RTY4"),
+            end_resting_axis(USAGE_X, "Throttle L"),
+            end_resting_axis(USAGE_Y, "Throttle R"),
+            end_resting_axis(USAGE_Z, "Rotary F"),
+            centered_axis(USAGE_RX, "Mini stick X"),
+            centered_axis(USAGE_RY, "Mini stick Y"),
+            end_resting_axis(USAGE_RZ, "Rotary G"),
+            end_resting_axis(USAGE_SLIDER, "RTY3"),
+            end_resting_axis(USAGE_DIAL, "RTY4"),
         ],
     },
     KnownDevice {
@@ -127,9 +140,9 @@ pub static KNOWN_DEVICES: [KnownDevice; 3] = [
         product_id: 0x0763,
         supports_rgb_lighting: false,
         axes: &[
-            end_resting_axis("Left brake"),
-            end_resting_axis("Right brake"),
-            centered_axis("Rudder"),
+            end_resting_axis(USAGE_X, "Left brake"),
+            end_resting_axis(USAGE_Y, "Right brake"),
+            centered_axis(USAGE_RZ, "Rudder"),
         ],
     },
 ];

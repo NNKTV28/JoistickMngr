@@ -5,12 +5,17 @@ mod app_icon;
 mod app_state;
 mod automation;
 mod autostart;
+mod bindings;
 mod device_scanner;
 mod driver_repair;
 mod driver_status;
+mod hid_controller;
+mod input_injection;
 mod input_reader;
+mod keyboard_keys;
 mod known_devices;
 mod lighting;
+mod mapping_engine;
 mod product_images;
 mod profiles;
 mod settings;
@@ -18,9 +23,11 @@ mod single_instance;
 mod storage;
 mod system_actions;
 mod theme;
+mod thread_priority;
 mod tray;
 mod ui;
 mod usb_power;
+mod virtual_gamepad;
 mod windows_update;
 
 use std::sync::{Arc, Mutex};
@@ -33,6 +40,7 @@ use autostart::MINIMIZED_ARGUMENT;
 use device_scanner::DeviceScannerService;
 use input_reader::InputReaderService;
 use lighting::LightingService;
+use mapping_engine::MappingEngine;
 use windows_update::WindowsUpdateService;
 
 const REGISTER_AUTOSTART_ARGUMENT: &str = "--register-autostart";
@@ -49,7 +57,7 @@ fn main() -> eframe::Result {
     };
 
     let app_state: SharedAppState = Arc::new(Mutex::new(AppState::load()));
-    let services = start_background_services();
+    let services = start_background_services(&app_state);
     restore_lighting_if_enabled(&app_state, &services.lighting);
     automation::start_automation(Arc::clone(&app_state), services.lighting.clone());
 
@@ -79,10 +87,12 @@ fn run_command_line_task(arguments: &[String]) -> Option<i32> {
     Some(if task_result.is_ok() { 0 } else { 1 })
 }
 
-fn start_background_services() -> BackgroundServices {
+fn start_background_services(app_state: &SharedAppState) -> BackgroundServices {
+    let input_reader = InputReaderService::start();
     BackgroundServices {
+        mapping_engine: MappingEngine::start(Arc::clone(app_state), &input_reader),
         device_scanner: DeviceScannerService::start(),
-        input_reader: InputReaderService::start(),
+        input_reader,
         lighting: LightingService::start(),
         windows_update: WindowsUpdateService::default(),
     }
