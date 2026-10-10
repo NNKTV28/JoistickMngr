@@ -29,7 +29,8 @@ $compilerArguments = @("/DAppVersion=$Version")
 if ($env:SIGNING_CERTIFICATE_PATH) {
     $signScript = Join-Path $PSScriptRoot "sign-file.ps1"
     $compilerArguments += "/DUseSignTool"
-    $compilerArguments += "/Snikicoding=pwsh -NoProfile -ExecutionPolicy Bypass -File `"$signScript`" -FilePath `$f"
+    # Inno Setup writes a double quote as $q inside sign tool commands and replaces $f with the quoted file path.
+    $compilerArguments += "/Snikicoding=pwsh -NoProfile -ExecutionPolicy Bypass -File `$q$signScript`$q -FilePath `$f"
 }
 $compilerArguments += (Join-Path $repositoryRoot "installer\JoystickManager.iss")
 
