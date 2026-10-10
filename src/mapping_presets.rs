@@ -3,6 +3,7 @@
 use crate::bindings::{
     AxisDirection, ControllerAxis, InputBinding, InputSource, OutputAction, ScreenAxis, VirtualControllerKind,
 };
+use crate::hall_effect::KeyResponse;
 use crate::known_devices::DeviceKind;
 use crate::profiles::Profile;
 
@@ -26,10 +27,14 @@ fn axis_source(device: DeviceKind, axis_index: usize) -> InputSource {
     InputSource::Axis { device, axis_index }
 }
 
-fn analog_key(axis_index: usize, direction: AxisDirection, virtual_key: u16) -> InputBinding {
+fn hall_effect_key(axis_index: usize, direction: AxisDirection, virtual_key: u16) -> InputBinding {
     InputBinding::new(
         axis_source(DeviceKind::Joystick, axis_index),
-        OutputAction::PulsedKey { virtual_key, direction },
+        OutputAction::HallEffectKey {
+            virtual_key,
+            direction,
+            response: KeyResponse::default(),
+        },
         Default::default(),
     )
 }
@@ -42,15 +47,15 @@ fn controller_axis(device: DeviceKind, axis_index: usize, axis: ControllerAxis, 
     )
 }
 
-/// Stick forward / back on W / S, left / right on A / D, twist on Q / E, all analog.
+/// Stick forward / back on W / S, left / right on A / D, twist on Q / E, as Hall effect keys with rapid trigger.
 pub fn add_wasd_flight_layout(profile: &mut Profile) {
     profile.bindings.extend([
-        analog_key(STICK_PITCH_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_W),
-        analog_key(STICK_PITCH_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_S),
-        analog_key(STICK_ROLL_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_A),
-        analog_key(STICK_ROLL_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_D),
-        analog_key(STICK_TWIST_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_Q),
-        analog_key(STICK_TWIST_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_E),
+        hall_effect_key(STICK_PITCH_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_W),
+        hall_effect_key(STICK_PITCH_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_S),
+        hall_effect_key(STICK_ROLL_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_A),
+        hall_effect_key(STICK_ROLL_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_D),
+        hall_effect_key(STICK_TWIST_AXIS, AxisDirection::Decreasing, VIRTUAL_KEY_Q),
+        hall_effect_key(STICK_TWIST_AXIS, AxisDirection::Increasing, VIRTUAL_KEY_E),
     ]);
 }
 

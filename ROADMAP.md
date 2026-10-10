@@ -8,7 +8,7 @@
 - Profiles with automatic switching when a game starts
 - Key, mouse and virtual Xbox / DualShock 4 controller mapping
 - Mode layers (M1 / M2 / M3 switch) and a shift layer
-- Analog keys: a key pulsed in proportion to how far an axis is pushed
+- Pulsed keys: a key held for a share of the time that follows how far an axis is pushed
 - Axis deadzone, curve and saturation applied to mapped axes
 - Automatic updates from GitHub releases
 - English and Spanish interface
@@ -19,6 +19,8 @@
 - 30-second drift measurement, corrected values in the input tester with a raw readings switch
 - One profile per mode switch position (M1 / M2 / M3), loaded the moment the switch is flipped
 - Press styles: while held, toggle, short tap, long hold and double tap
+- X56 throttle mode switch read from the throttle's own mode report
+- Hall effect keys: adjustable actuation point, rapid trigger and continuous rapid trigger
 
 ## Planned
 
@@ -39,5 +41,9 @@ Ideas that are wanted but not scheduled yet.
 - **Game-driven lighting** – LEDs react to the simulator (DCS, MSFS) through their export interfaces.
 - **Cheat sheet** – printable sheet or on-screen overlay of what every button does in the current profile.
 - **Disconnect watchdog** – notify when a device drops out and restore its lighting when it returns.
-- **Range calibration** – set each axis's minimum and maximum to compensate for wear (centre and jitter are already corrected).
+- **Range calibration** – press each axis fully and release it to record its real minimum and maximum, so
+  worn axes still reach full travel and Hall effect actuation points stay accurate (centre and jitter are
+  already corrected).
+- **Wooting Analog SDK plugin** – expose HOTAS axes as analog keys to games that read analog keyboards through
+  the Wooting Analog SDK.
 - **Custom drivers** – explore own drivers to improve how the devices behave in Windows.

@@ -19,9 +19,13 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
 - **Stick drift correction** – measures every stick axis at rest for 30 seconds to find where it really rests
   and how much it wanders, then re-centres it and hides the jitter for everything the app sends. The input
   tester shows corrected values, with a switch to see the raw readings.
-- **Modes, layers and analog keys** – each position of the throttle's M1 / M2 / M3 switch can load its own
-  profile the moment it is flipped, and an optional shift button gives every control a second job. An axis can drive a key the way a magnetic keyboard does: the key is pulsed in
-  proportion to how far the axis is pushed.
+- **Modes and layers** – the X56 throttle's M1 / M2 / M3 switch is read straight from the throttle, and each
+  position can load its own profile the moment it is flipped. An optional shift button gives every control a
+  second job.
+- **Hall effect keys** – an axis drives a key the way a magnetic (Hall effect) keyboard switch does: an
+  adjustable actuation point, rapid trigger that releases the key the moment the axis eases off, and a
+  continuous rapid trigger mode. For games that only read keys there is also a pulsed key, held for a share of
+  the time that follows the axis. Real partial input goes through the virtual controller's sticks and triggers.
 - **Press styles** – a button can act while held, toggle on and off, or fire only on a short tap, a long hold
   or a double tap, so one button can do several things.
 - **Profiles** – named setups with lighting, axis tuning and key mapping, activated manually or automatically

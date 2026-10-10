@@ -16,6 +16,7 @@ use crate::bindings::{
     VirtualControllerKind, WheelDirection,
 };
 use crate::calibration::CalibrationStore;
+use crate::hall_effect::HallEffectKeyState;
 use crate::input_injection::InputBatch;
 use crate::input_reader::{ControllerSnapshot, ControllerUpdate, InputReaderService};
 use crate::known_devices::DeviceKind;
@@ -82,6 +83,20 @@ struct MappingConfiguration {
     profiles_by_mode: [Option<String>; MODE_COUNT],
 }
 
+/// What individual bindings remember between reports, by their position in the binding list.
+#[derive(Default)]
+struct BindingMemory {
+    press_trackers: HashMap<usize, PressTracker>,
+    hall_effect_keys: HashMap<usize, HallEffectKeyState>,
+}
+
+impl BindingMemory {
+    fn clear(&mut self) {
+        self.press_trackers.clear();
+        self.hall_effect_keys.clear();
+    }
+}
+
 /// Everything the bindings ask for right now.
 #[derive(Default)]
 struct DesiredOutputs {
@@ -101,8 +116,7 @@ struct MappingWorker {
     configuration: MappingConfiguration,
     last_configuration_refresh: Instant,
     snapshots: HashMap<DeviceKind, ControllerSnapshot>,
-    /// Recent presses of each binding, by its position in the binding list.
-    press_trackers: HashMap<usize, PressTracker>,
+    binding_memory: BindingMemory,
     held_keys: HashSet<u16>,
     held_mouse_buttons: HashSet<MouseButtonKind>,
     last_wheel_notch: HashMap<usize, Instant>,
@@ -128,7 +142,7 @@ impl MappingWorker {
             configuration: MappingConfiguration::default(),
             last_configuration_refresh: Instant::now() - CONFIGURATION_REFRESH_INTERVAL,
             snapshots: HashMap::new(),
-            press_trackers: HashMap::new(),
+            binding_memory: BindingMemory::default(),
             held_keys: HashSet::new(),
             held_mouse_buttons: HashSet::new(),
             last_wheel_notch: HashMap::new(),
@@ -188,7 +202,7 @@ impl MappingWorker {
             profiles_by_mode: state.settings.profiles_by_mode.clone(),
         };
         if self.configuration.bindings != previous_bindings {
-            self.press_trackers.clear();
+            self.binding_memory.clear();
         }
         self.last_configuration_refresh = Instant::now();
     }
@@ -265,7 +279,7 @@ impl MappingWorker {
             collect_desired_outputs(
                 &self.configuration,
                 &self.snapshots,
-                &mut self.press_trackers,
+                &mut self.binding_memory,
                 pulse_phase,
             )
         } else {
@@ -357,7 +371,7 @@ impl MappingWorker {
 fn collect_desired_outputs(
     configuration: &MappingConfiguration,
     snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
-    press_trackers: &mut HashMap<usize, PressTracker>,
+    binding_memory: &mut BindingMemory,
     pulse_phase: f64,
 ) -> DesiredOutputs {
     let mut desired = DesiredOutputs::default();
@@ -372,16 +386,18 @@ fn collect_desired_outputs(
         let is_in_layer = binding.enabled && binding.layer.matches(active_layer);
         if binding.source.is_analog() {
             if !is_in_layer {
+                binding_memory.hall_effect_keys.remove(&binding_index);
                 continue;
             }
             if let Some(position) = tuned_axis_position(binding.source, snapshot, configuration) {
-                add_analog_output(&mut desired, binding.action, position, pulse_phase);
+                let hall_effect_key = binding_memory.hall_effect_keys.entry(binding_index).or_default();
+                add_analog_output(&mut desired, binding.action, position, pulse_phase, hall_effect_key);
             }
             continue;
         }
         let is_pressed = is_in_layer && binding.source.is_active(snapshot);
         let waits_for_double_tap = has_double_tap_sibling(&configuration.bindings, binding_index);
-        let output_is_on = press_trackers.entry(binding_index).or_default().update(
+        let output_is_on = binding_memory.press_trackers.entry(binding_index).or_default().update(
             binding.press_style,
             is_pressed,
             now,
@@ -413,12 +429,23 @@ fn add_analog_output(
     action: OutputAction,
     position: TunedAxisPosition,
     pulse_phase: f64,
+    hall_effect_key: &mut HallEffectKeyState,
 ) {
     let axis_value = position.value;
     match action {
         OutputAction::PulsedKey { virtual_key, direction } => {
             let push = push_toward(position, direction);
             if is_pulse_held(push, pulse_phase) {
+                desired.keys.insert(virtual_key);
+            }
+        }
+        OutputAction::HallEffectKey {
+            virtual_key,
+            direction,
+            response,
+        } => {
+            let push = push_toward(position, direction) as f32;
+            if hall_effect_key.update(push, response) {
                 desired.keys.insert(virtual_key);
             }
         }

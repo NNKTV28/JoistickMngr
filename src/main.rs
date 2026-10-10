@@ -10,6 +10,7 @@ mod calibration;
 mod device_scanner;
 mod driver_repair;
 mod driver_status;
+mod hall_effect;
 mod hid_controller;
 mod input_injection;
 mod input_reader;

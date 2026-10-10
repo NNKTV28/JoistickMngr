@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::hall_effect::{KeyResponse, as_key_travel_millimetres};
 use crate::input_reader::{ControllerSnapshot, HatDirection};
 use crate::keyboard_keys::key_name;
 use crate::known_devices::DeviceKind;
@@ -317,13 +318,23 @@ pub enum OutputAction {
         virtual_key: u16,
         direction: AxisDirection,
     },
+    /// Presses a key like a Hall effect keyboard switch: down at the actuation point, and with rapid
+    /// trigger up again the moment the axis eases off.
+    HallEffectKey {
+        virtual_key: u16,
+        direction: AxisDirection,
+        response: KeyResponse,
+    },
 }
 
 impl OutputAction {
     pub fn needs_analog_source(&self) -> bool {
         matches!(
             self,
-            OutputAction::MouseMove { .. } | OutputAction::ControllerAxis { .. } | OutputAction::PulsedKey { .. }
+            OutputAction::MouseMove { .. }
+                | OutputAction::ControllerAxis { .. }
+                | OutputAction::PulsedKey { .. }
+                | OutputAction::HallEffectKey { .. }
         )
     }
 
@@ -355,7 +366,16 @@ impl OutputAction {
                 };
                 tr_format(template, &[&axis.label()])
             }
-            OutputAction::PulsedKey { virtual_key, .. } => tr_format("Key {} (analog)", &[&key_name(virtual_key)]),
+            OutputAction::PulsedKey { virtual_key, .. } => tr_format("Key {} (pulsed)", &[&key_name(virtual_key)]),
+            OutputAction::HallEffectKey {
+                virtual_key, response, ..
+            } => tr_format(
+                "Key {} (Hall effect, {} mm)",
+                &[
+                    &key_name(virtual_key),
+                    &format!("{:.1}", as_key_travel_millimetres(response.actuation_point)),
+                ],
+            ),
         }
     }
 }
@@ -392,7 +412,9 @@ impl InputBinding {
     /// Which kind of output the binding produces, for grouping and colour tags in the interface.
     pub fn output_family(&self) -> OutputFamily {
         match self.action {
-            OutputAction::Key { .. } | OutputAction::PulsedKey { .. } => OutputFamily::Keyboard,
+            OutputAction::Key { .. } | OutputAction::PulsedKey { .. } | OutputAction::HallEffectKey { .. } => {
+                OutputFamily::Keyboard
+            }
             OutputAction::MouseButton { .. } | OutputAction::MouseWheel { .. } | OutputAction::MouseMove { .. } => {
                 OutputFamily::Mouse
             }

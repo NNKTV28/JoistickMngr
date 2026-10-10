@@ -11,6 +11,7 @@ use crate::bindings::{
     OutputFamily, ScreenAxis, VirtualControllerKind, WheelDirection,
 };
 use crate::calibration::CalibrationStore;
+use crate::hall_effect::{KeyResponse, RapidTriggerMode, as_key_travel_millimetres};
 use crate::input_reader::{ControllerSnapshot, HatDirection};
 use crate::keyboard_keys::{all_keyboard_keys, find_key_for_egui_key, key_name};
 use crate::known_devices::DeviceKind;
@@ -37,6 +38,7 @@ const THRESHOLD_EDIT_SPREAD: f64 = 0.2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActionKind {
     Key,
+    HallEffectKey,
     PulsedKey,
     MouseButton,
     MouseWheel,
@@ -46,8 +48,9 @@ enum ActionKind {
 }
 
 impl ActionKind {
-    const ALL: [ActionKind; 7] = [
+    const ALL: [ActionKind; 8] = [
         ActionKind::Key,
+        ActionKind::HallEffectKey,
         ActionKind::PulsedKey,
         ActionKind::MouseButton,
         ActionKind::MouseWheel,
@@ -60,6 +63,7 @@ impl ActionKind {
         match action {
             OutputAction::Key { .. } => ActionKind::Key,
             OutputAction::PulsedKey { .. } => ActionKind::PulsedKey,
+            OutputAction::HallEffectKey { .. } => ActionKind::HallEffectKey,
             OutputAction::MouseButton { .. } => ActionKind::MouseButton,
             OutputAction::MouseWheel { .. } => ActionKind::MouseWheel,
             OutputAction::MouseMove { .. } => ActionKind::MouseMove,
@@ -71,7 +75,8 @@ impl ActionKind {
     fn label(self) -> &'static str {
         tr(match self {
             ActionKind::Key => "Keyboard key",
-            ActionKind::PulsedKey => "Keyboard key, analog (like a magnetic keyboard)",
+            ActionKind::HallEffectKey => "Keyboard key, Hall effect (actuation point and rapid trigger)",
+            ActionKind::PulsedKey => "Keyboard key, pulsed (held for a share of the time)",
             ActionKind::MouseButton => "Mouse button",
             ActionKind::MouseWheel => "Mouse wheel",
             ActionKind::MouseMove => "Mouse movement (axis)",
@@ -83,7 +88,7 @@ impl ActionKind {
     fn needs_axis(self) -> bool {
         matches!(
             self,
-            ActionKind::PulsedKey | ActionKind::MouseMove | ActionKind::ControllerAxis
+            ActionKind::HallEffectKey | ActionKind::PulsedKey | ActionKind::MouseMove | ActionKind::ControllerAxis
         )
     }
 }
@@ -233,6 +238,7 @@ pub struct MappingEditor {
     controller_button: ControllerButton,
     controller_axis: ControllerAxis,
     controller_axis_inverted: bool,
+    key_response: KeyResponse,
     layer: BindingLayer,
     press_style: PressStyle,
 }
@@ -254,6 +260,7 @@ impl Default for MappingEditor {
             controller_button: ControllerButton::A,
             controller_axis: ControllerAxis::LeftStickX,
             controller_axis_inverted: false,
+            key_response: KeyResponse::default(),
             layer: BindingLayer::default(),
             press_style: PressStyle::WhileHeld,
         }
@@ -263,10 +270,7 @@ impl Default for MappingEditor {
 impl MappingEditor {
     /// Fills the editor with an existing binding so it can be changed.
     fn load_binding(&mut self, binding_index: usize, binding: &InputBinding) {
-        let push_direction = match binding.action {
-            OutputAction::PulsedKey { direction, .. } => Some(direction),
-            _ => None,
-        };
+        let push_direction = pushed_direction(binding.action);
         self.editing_index = Some(binding_index);
         self.detection = None;
         self.detected_control = Some(DetectedControl::from_input_source(binding.source, push_direction));
@@ -280,6 +284,12 @@ impl MappingEditor {
         match action {
             OutputAction::Key { virtual_key } | OutputAction::PulsedKey { virtual_key, .. } => {
                 self.virtual_key = virtual_key;
+            }
+            OutputAction::HallEffectKey {
+                virtual_key, response, ..
+            } => {
+                self.virtual_key = virtual_key;
+                self.key_response = response;
             }
             OutputAction::MouseButton { button } => self.mouse_button = button,
             OutputAction::MouseWheel { direction } => self.wheel_direction = direction,
@@ -311,6 +321,11 @@ impl MappingEditor {
             ActionKind::PulsedKey => OutputAction::PulsedKey {
                 virtual_key: self.virtual_key,
                 direction: self.detected_push_direction(),
+            },
+            ActionKind::HallEffectKey => OutputAction::HallEffectKey {
+                virtual_key: self.virtual_key,
+                direction: self.detected_push_direction(),
+                response: self.key_response,
             },
             ActionKind::MouseButton => OutputAction::MouseButton {
                 button: self.mouse_button,
@@ -565,11 +580,12 @@ impl JoystickManagerApp {
         });
         ui.horizontal_wrapped(|ui| match editor.action_kind {
             ActionKind::Key => show_key_choice(ui, editor),
+            ActionKind::HallEffectKey => show_key_choice(ui, editor),
             ActionKind::PulsedKey => {
                 show_key_choice(ui, editor);
                 muted_text(
                     ui,
-                    "The key is tapped faster the further the axis moves, like a partial press on a magnetic keyboard.",
+                    "The key is held for a share of the time that follows how far the axis is pushed. Useful in games that only read keys, where a partial press is otherwise impossible.",
                 );
             }
             ActionKind::MouseButton => {
@@ -612,6 +628,9 @@ impl JoystickManagerApp {
                 ui.checkbox(&mut editor.controller_axis_inverted, tr("Invert"));
             }
         });
+        if editor.action_kind == ActionKind::HallEffectKey {
+            show_key_response_choice(ui, &mut editor.key_response);
+        }
         show_layer_choice(ui, &mut editor.layer);
         if !editor.action_kind.needs_axis() {
             show_press_style_choice(ui, &mut editor.press_style);
@@ -739,7 +758,7 @@ impl JoystickManagerApp {
         editor.detected_control = Some(control);
         if control.is_axis() && !editor.action_kind.needs_axis() {
             editor.action_kind = if editor.action_kind == ActionKind::Key {
-                ActionKind::PulsedKey
+                ActionKind::HallEffectKey
             } else {
                 ActionKind::ControllerAxis
             };
@@ -1067,19 +1086,63 @@ fn analog_deflection(
     };
     let value = calibration.correct(device, axis_index, snapshot.axis_value(axis_index)?);
     let rests_at_center = device.definition().axis_rests_at_center(axis_index);
-    let deflection = match (binding.action, rests_at_center) {
-        (OutputAction::PulsedKey { direction, .. }, true) => match direction {
-            AxisDirection::Increasing => (value - 0.5) * 2.0,
-            AxisDirection::Decreasing => (0.5 - value) * 2.0,
-        },
-        (OutputAction::PulsedKey { direction, .. }, false) => match direction {
-            AxisDirection::Increasing => value,
-            AxisDirection::Decreasing => 1.0 - value,
-        },
-        (_, true) => (value - 0.5).abs() * 2.0,
-        (_, false) => value,
+    let deflection = match (pushed_direction(binding.action), rests_at_center) {
+        (Some(AxisDirection::Increasing), true) => (value - 0.5) * 2.0,
+        (Some(AxisDirection::Decreasing), true) => (0.5 - value) * 2.0,
+        (Some(AxisDirection::Increasing), false) => value,
+        (Some(AxisDirection::Decreasing), false) => 1.0 - value,
+        (None, true) => (value - 0.5).abs() * 2.0,
+        (None, false) => value,
     };
     Some(deflection.clamp(0.0, 1.0))
+}
+
+/// The direction an axis-driven key reacts to, for actions that only care about one direction.
+fn pushed_direction(action: OutputAction) -> Option<AxisDirection> {
+    match action {
+        OutputAction::PulsedKey { direction, .. } | OutputAction::HallEffectKey { direction, .. } => Some(direction),
+        _ => None,
+    }
+}
+
+/// Actuation point, rapid trigger mode and sensitivity of a Hall effect key.
+fn show_key_response_choice(ui: &mut Ui, response: &mut KeyResponse) {
+    let as_travel = |share: f64, _: std::ops::RangeInclusive<usize>| {
+        format!(
+            "{:.0}% · {:.1} mm",
+            share * 100.0,
+            as_key_travel_millimetres(share as f32)
+        )
+    };
+    ui.horizontal_wrapped(|ui| {
+        muted_text(ui, "Actuation point");
+        ui.add(Slider::new(&mut response.actuation_point, 0.05..=0.95).custom_formatter(as_travel));
+    });
+    ui.horizontal_wrapped(|ui| {
+        ComboBox::from_id_salt("rapid-trigger")
+            .selected_text(response.rapid_trigger.label())
+            .show_ui(ui, |ui| {
+                for mode in RapidTriggerMode::ALL {
+                    ui.selectable_value(&mut response.rapid_trigger, mode, mode.label());
+                }
+            });
+        if response.rapid_trigger != RapidTriggerMode::Off {
+            muted_text(ui, "Sensitivity");
+            ui.add(Slider::new(&mut response.rapid_trigger_sensitivity, 0.02..=0.30).custom_formatter(as_travel));
+        }
+    });
+    let explanation = match response.rapid_trigger {
+        RapidTriggerMode::Off => {
+            "The key goes down at the actuation point and comes up when the axis returns past it, like a classic switch."
+        }
+        RapidTriggerMode::On => {
+            "Past the actuation point the key comes up as soon as the axis eases off by the sensitivity, and goes down again when pushed further by the same amount."
+        }
+        RapidTriggerMode::Continuous => {
+            "After the first actuation the key follows every push and ease-off anywhere in the travel, until the axis is back at rest."
+        }
+    };
+    muted_text(ui, explanation);
 }
 
 fn output_family_color(family: OutputFamily) -> Color32 {
