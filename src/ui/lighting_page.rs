@@ -1,11 +1,14 @@
 //! Lighting: live colour and brightness editing for the X56 stick and throttle.
 
-use eframe::egui::{self, RichText, Slider, TextureHandle, Ui};
+use eframe::egui::{self, ComboBox, RichText, Slider, TextureHandle, Ui};
 
 use crate::app::JoystickManagerApp;
 use crate::driver_status::vendor_release_for;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingAvailability;
+use crate::lighting_effects::{
+    LightingEffectKind, MAXIMUM_CYCLE_SECONDS, MINIMUM_CYCLE_SECONDS, setting_showing_current_frame,
+};
 use crate::localization::{tr, tr_format};
 use crate::profiles::{LightingSetting, Profile, RgbColor};
 use crate::system_actions::open_in_default_handler;
@@ -258,8 +261,13 @@ fn show_unit_editor(
             });
         });
         ui.add_space(6.0);
-        device_preview(ui, photo, Some(*setting), device_kind.definition().short_name);
+        let current_frame = setting_showing_current_frame(*setting, ui.input(|input| input.time));
+        device_preview(ui, photo, Some(current_frame), device_kind.definition().short_name);
         ui.add_space(10.0);
+
+        caption(ui, "Effect");
+        changed |= show_effect_controls(ui, device_kind, setting);
+        ui.add_space(8.0);
 
         caption(ui, "Presets");
         changed |= show_preset_swatches(ui, setting);
@@ -273,6 +281,42 @@ fn show_unit_editor(
 
         caption(ui, "Custom colour");
         changed |= show_custom_color_controls(ui, setting, hex_input);
+    });
+    changed
+}
+
+/// Effect choice, its speed, and the second colour when the effect fades between two.
+fn show_effect_controls(ui: &mut Ui, device_kind: DeviceKind, setting: &mut LightingSetting) -> bool {
+    let mut changed = false;
+    ui.horizontal_wrapped(|ui| {
+        let mut chosen_kind = setting.effect.kind();
+        ComboBox::from_id_salt(("lighting-effect", device_kind))
+            .selected_text(chosen_kind.label())
+            .width(220.0)
+            .show_ui(ui, |ui| {
+                for kind in LightingEffectKind::ALL {
+                    ui.selectable_value(&mut chosen_kind, kind, kind.label());
+                }
+            });
+        if chosen_kind != setting.effect.kind() {
+            setting.effect = chosen_kind.build(setting.effect);
+            changed = true;
+        }
+        if let Some(cycle_seconds) = setting.effect.cycle_seconds_mut() {
+            muted_text(ui, "Seconds per cycle");
+            let speed_slider = Slider::new(cycle_seconds, MINIMUM_CYCLE_SECONDS..=MAXIMUM_CYCLE_SECONDS)
+                .logarithmic(true)
+                .suffix(" s");
+            changed |= ui.add(speed_slider).changed();
+        }
+        if let Some(second_color) = setting.effect.second_color_mut() {
+            muted_text(ui, "Second colour");
+            let mut channels = [second_color.red, second_color.green, second_color.blue];
+            if egui::color_picker::color_edit_button_srgb(ui, &mut channels).changed() {
+                *second_color = RgbColor::new(channels[0], channels[1], channels[2]);
+                changed = true;
+            }
+        }
     });
     changed
 }

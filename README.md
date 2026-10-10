@@ -9,7 +9,7 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
 - **Drivers** – every USB interface with its driver provider, version, date and INF, compared against the
   latest Logitech release. Searches Windows Update for newer signed drivers and installs them in one click.
 - **Lighting** – colour and brightness for the X56 stick and throttle through Logitech's DirectOutput SDK,
-  with presets, a "link both units" switch and changes shown on the hardware live.
+  with presets, effects (breathing, rainbow, two-colour fade, strobe) at any speed, a "link both units" switch and changes shown on the hardware live.
 - **Input tester** – live axes, buttons and hats at 100 Hz, axis jitter measurement, range recording and a
   button press log to catch ghost inputs.
 - **Key mapping** – bind any button, hat or axis to a keyboard key, mouse click, wheel or pointer movement, or to

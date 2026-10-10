@@ -15,6 +15,7 @@
 - Output tiles for keyboard & mouse, Xbox and PlayStation with one-click layouts (WASD flight, mouse look, controller starter)
 - Binding list grouped by device with live activity, on/off switch and editing
 - Stick drift correction: measured rest centre and jitter, applied to every mapped output
+- Lighting effects: static, breathing, rainbow, two-colour fade and strobe, with adjustable speed
 
 ## Planned
 

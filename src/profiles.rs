@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::bindings::{InputBinding, VirtualControllerKind};
 use crate::known_devices::DeviceKind;
 use crate::layers::LayerSetup;
+use crate::lighting_effects::LightingEffect;
 use crate::storage::{application_data_directory, read_json_file, write_json_file};
 
 pub const DEFAULT_PROFILE_NAME: &str = "Default";
@@ -47,6 +48,8 @@ impl RgbColor {
 pub struct LightingSetting {
     pub color: RgbColor,
     pub brightness_percent: u8,
+    #[serde(default)]
+    pub effect: LightingEffect,
 }
 
 impl Default for LightingSetting {
@@ -54,6 +57,7 @@ impl Default for LightingSetting {
         Self {
             color: RgbColor::new(0x00, 0xC8, 0xFF),
             brightness_percent: 100,
+            effect: LightingEffect::Static,
         }
     }
 }

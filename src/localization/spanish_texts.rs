@@ -543,6 +543,15 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
         "Measured once per device; run it again if the stick wears further.",
         "Se mide una vez por dispositivo; repítelo si el stick se desgasta más.",
     ),
+    // Lighting effects
+    ("Effect", "Efecto"),
+    ("Static", "Fijo"),
+    ("Breathing", "Respiración"),
+    ("Rainbow", "Arcoíris"),
+    ("Fade between two colours", "Transición entre dos colores"),
+    ("Strobe", "Estroboscópico"),
+    ("Seconds per cycle", "Segundos por ciclo"),
+    ("Second colour", "Segundo color"),
     // Settings
     ("Start-up", "Inicio"),
     (

@@ -49,7 +49,10 @@ pub enum Page {
 
 impl Page {
     fn shows_live_input(self) -> bool {
-        matches!(self, Page::Overview | Page::InputTester | Page::KeyMapping)
+        matches!(
+            self,
+            Page::Overview | Page::InputTester | Page::KeyMapping | Page::Lighting
+        )
     }
 }
 

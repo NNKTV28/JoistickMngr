@@ -6,6 +6,7 @@ use crate::app::{JoystickManagerApp, Page};
 use crate::device_scanner::{ConnectedDevice, ScanState};
 use crate::driver_status::{DriverHealth, evaluate_driver_health};
 use crate::known_devices::{DeviceKind, KnownDevice};
+use crate::lighting_effects::setting_showing_current_frame;
 use crate::localization::{tr, tr_format};
 use crate::profiles::LightingSetting;
 use crate::ui::widgets::*;
@@ -178,7 +179,9 @@ fn show_device_card(ui: &mut Ui, content: &DeviceCardContent) -> bool {
         ui.add_space(6.0);
 
         let led_glow = lighting.filter(|_| definition.supports_rgb_lighting);
-        device_preview(ui, photo, led_glow, definition.short_name);
+        let interface_time = ui.input(|input| input.time);
+        let animated_glow = led_glow.map(|setting| setting_showing_current_frame(setting, interface_time));
+        device_preview(ui, photo, animated_glow, definition.short_name);
         ui.add_space(6.0);
 
         key_value_grid(

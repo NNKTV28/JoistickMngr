@@ -17,6 +17,7 @@ mod keyboard_keys;
 mod known_devices;
 mod layers;
 mod lighting;
+mod lighting_effects;
 mod localization;
 mod mapping_engine;
 mod mapping_presets;

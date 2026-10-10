@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libloading::Library;
 use windows::core::GUID;
@@ -14,6 +14,7 @@ use winreg::RegKey;
 use winreg::enums::HKEY_LOCAL_MACHINE;
 
 use crate::known_devices::DeviceKind;
+use crate::lighting_effects::{LightingFrame, frame_at};
 use crate::profiles::{LightingSetting, Profile};
 
 const DEFAULT_DIRECT_OUTPUT_PATH: &str = r"C:\Program Files\Logitech\DirectOutput\DirectOutput.dll";
@@ -23,6 +24,8 @@ const FLAG_SET_AS_ACTIVE_PAGE: u32 = 1;
 const BRIGHTNESS_LED_INDEX: u32 = 0;
 const COLOR_LED_INDEX: u32 = 1;
 const DEVICE_RESCAN_INTERVAL: Duration = Duration::from_secs(4);
+/// About 25 frames per second: smooth to the eye without flooding the USB connection.
+const ANIMATION_FRAME_INTERVAL: Duration = Duration::from_millis(40);
 
 const X56_STICK_DEVICE_TYPE: GUID = GUID::from_u128(0x40D17E5E_8091_409F_A2B5_24EF1915A812);
 const X56_THROTTLE_DEVICE_TYPE: GUID = GUID::from_u128(0xEE9E44A9_46CD_470B_B650_9C5859992240);
@@ -120,28 +123,70 @@ fn run_lighting_thread(
         }
     };
 
-    refresh_and_publish_units(&mut direct_output, &availability, &applied_settings);
+    let animation_started_at = Instant::now();
+    let mut last_device_rescan = Instant::now();
+    let mut written_frames: HashMap<DeviceKind, LightingFrame> = HashMap::new();
+    refresh_and_publish_units(&mut direct_output, &availability);
     loop {
-        match command_receiver.recv_timeout(DEVICE_RESCAN_INTERVAL) {
+        let wait_time = time_until_next_update(&applied_settings, last_device_rescan);
+        match command_receiver.recv_timeout(wait_time) {
             Ok(LightingCommand::Apply { device_kind, setting }) => {
                 applied_settings.lock().unwrap().insert(device_kind, setting);
-                direct_output.write_setting(device_kind, setting);
+                written_frames.remove(&device_kind);
             }
-            Err(RecvTimeoutError::Timeout) => {
-                refresh_and_publish_units(&mut direct_output, &availability, &applied_settings);
-            }
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+        if last_device_rescan.elapsed() >= DEVICE_RESCAN_INTERVAL {
+            refresh_and_publish_units(&mut direct_output, &availability);
+            last_device_rescan = Instant::now();
+            written_frames.clear();
+        }
+        let settings_snapshot = applied_settings.lock().unwrap().clone();
+        write_changed_frames(
+            &direct_output,
+            &settings_snapshot,
+            animation_started_at.elapsed(),
+            &mut written_frames,
+        );
+    }
+}
+
+/// Animated effects need a new frame soon; static lighting only needs the periodic device rescan.
+fn time_until_next_update(
+    applied_settings: &Mutex<HashMap<DeviceKind, LightingSetting>>,
+    last_device_rescan: Instant,
+) -> Duration {
+    let any_animated = applied_settings
+        .lock()
+        .unwrap()
+        .values()
+        .any(|setting| setting.effect.is_animated());
+    if any_animated {
+        ANIMATION_FRAME_INTERVAL
+    } else {
+        DEVICE_RESCAN_INTERVAL.saturating_sub(last_device_rescan.elapsed())
+    }
+}
+
+/// Sends each unit its current frame, skipping units whose LEDs already show it.
+fn write_changed_frames(
+    direct_output: &DirectOutput,
+    settings: &HashMap<DeviceKind, LightingSetting>,
+    time_since_start: Duration,
+    written_frames: &mut HashMap<DeviceKind, LightingFrame>,
+) {
+    for (device_kind, setting) in settings {
+        let frame = frame_at(*setting, time_since_start);
+        if written_frames.get(device_kind) != Some(&frame) {
+            direct_output.write_frame(*device_kind, frame);
+            written_frames.insert(*device_kind, frame);
         }
     }
 }
 
-fn refresh_and_publish_units(
-    direct_output: &mut DirectOutput,
-    availability: &Mutex<LightingAvailability>,
-    applied_settings: &Mutex<HashMap<DeviceKind, LightingSetting>>,
-) {
-    let settings_snapshot = applied_settings.lock().unwrap().clone();
-    direct_output.refresh_connected_units(&settings_snapshot);
+fn refresh_and_publish_units(direct_output: &mut DirectOutput, availability: &Mutex<LightingAvailability>) {
+    direct_output.refresh_connected_units();
     *availability.lock().unwrap() = LightingAvailability::Ready {
         connected_units: direct_output.connected_kinds(),
     };
@@ -199,15 +244,13 @@ impl DirectOutput {
     }
 
     /// Picks up plugged or unplugged units and restores the last colour on newly found ones.
-    fn refresh_connected_units(&mut self, applied_settings: &HashMap<DeviceKind, LightingSetting>) {
+    /// Picks up plugged or unplugged units and claims a lighting page on newly found ones.
+    fn refresh_connected_units(&mut self) {
         let current_handles = self.enumerate_unit_handles();
         for (device_kind, handle) in &current_handles {
             let is_new_unit = self.unit_handles.get(device_kind) != Some(handle);
             if is_new_unit {
                 self.claim_lighting_page(*handle);
-                if let Some(setting) = applied_settings.get(device_kind) {
-                    self.write_led_values(*handle, *setting);
-                }
             }
         }
         self.unit_handles = current_handles;
@@ -244,14 +287,14 @@ impl DirectOutput {
         unsafe { (self.add_page)(handle as *mut c_void, LIGHTING_PAGE_ID, FLAG_SET_AS_ACTIVE_PAGE) };
     }
 
-    fn write_setting(&self, device_kind: DeviceKind, setting: LightingSetting) {
+    fn write_frame(&self, device_kind: DeviceKind, frame: LightingFrame) {
         if let Some(handle) = self.unit_handles.get(&device_kind) {
-            self.write_led_values(*handle, setting);
+            self.write_led_values(*handle, frame);
         }
     }
 
-    fn write_led_values(&self, handle: usize, setting: LightingSetting) {
-        let brightness = setting.brightness_percent.min(100) as u32;
+    fn write_led_values(&self, handle: usize, frame: LightingFrame) {
+        let brightness = frame.brightness_percent.min(100) as u32;
         // SAFETY: handle came from DirectOutput_Enumerate and our page was added to it.
         unsafe {
             (self.set_led)(
@@ -264,7 +307,7 @@ impl DirectOutput {
                 handle as *mut c_void,
                 LIGHTING_PAGE_ID,
                 COLOR_LED_INDEX,
-                setting.color.to_colorref(),
+                frame.color.to_colorref(),
             );
         }
     }
