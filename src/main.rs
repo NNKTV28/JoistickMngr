@@ -10,6 +10,7 @@ mod driver_status;
 mod input_reader;
 mod known_devices;
 mod lighting;
+mod product_images;
 mod profiles;
 mod settings;
 mod single_instance;

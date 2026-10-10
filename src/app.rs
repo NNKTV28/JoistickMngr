@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, ScrollArea, ViewportCommand};
+use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, ScrollArea, TextureHandle, ViewportCommand};
 use tray_icon::TrayIcon;
 
 use crate::app_state::SharedAppState;
@@ -12,6 +12,7 @@ use crate::device_scanner::DeviceScannerService;
 use crate::input_reader::InputReaderService;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingService;
+use crate::product_images::ProductImages;
 use crate::settings::AppSettings;
 use crate::single_instance::SingleInstanceGuard;
 use crate::system_actions::bring_window_to_front;
@@ -74,6 +75,7 @@ pub struct JoystickManagerApp {
     pub(crate) lighting_editor: LightingEditor,
     pub(crate) profile_editor: ProfileEditor,
     pub(crate) autostart_registered: bool,
+    product_images: ProductImages,
     status_banner: Option<StatusBanner>,
     tray_requests: TrayRequestQueue,
     window_is_visible: bool,
@@ -111,6 +113,7 @@ impl JoystickManagerApp {
             current_page: Page::Overview,
             device_page_tab: DevicePageTab::Drivers,
             autostart_registered: is_autostart_registered(),
+            product_images: ProductImages::start_loading(egui_context.clone()),
             status_banner: None,
             tray_requests,
             window_is_visible: starts_visible,
@@ -129,6 +132,15 @@ impl JoystickManagerApp {
 
     pub(crate) fn open_page(&mut self, page: Page) {
         self.current_page = page;
+    }
+
+    /// Logitech's product photo of the device, once downloaded.
+    pub(crate) fn product_photo(
+        &mut self,
+        egui_context: &egui::Context,
+        device_kind: DeviceKind,
+    ) -> Option<TextureHandle> {
+        self.product_images.texture(egui_context, device_kind)
     }
 
     /// Changes settings and saves them right away, reporting a failed save in the status banner.

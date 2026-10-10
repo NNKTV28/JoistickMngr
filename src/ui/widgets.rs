@@ -1,15 +1,16 @@
 //! Reusable building blocks for the cockpit look: cards, pills, buttons and live input gauges.
 
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, Frame, Margin, Rect, Response, RichText, Sense, Stroke, StrokeKind, Ui, Vec2,
-    pos2, vec2,
+    self, Align2, Color32, CornerRadius, Frame, Margin, Rect, Response, RichText, Sense, Stroke, StrokeKind,
+    TextureHandle, Ui, Vec2, pos2, vec2,
 };
 
 use crate::input_reader::HatDirection;
-use crate::profiles::{AxisTuning, RgbColor};
+use crate::profiles::{AxisTuning, LightingSetting, RgbColor};
 use crate::theme::*;
 
 const BUTTON_HEIGHT: f32 = 40.0;
+const DEVICE_PREVIEW_HEIGHT: f32 = 190.0;
 const VERTICAL_BAR_COLUMN_WIDTH: f32 = 78.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -330,10 +331,11 @@ pub fn color_swatch(ui: &mut Ui, color: RgbColor, is_selected: bool, tooltip: &s
     response.on_hover_text(tooltip)
 }
 
-/// Soft glow approximating how the unit's LEDs look at the given colour and brightness.
-pub fn lighting_glow_preview(ui: &mut Ui, color: RgbColor, brightness_percent: u8, label: &str) {
+/// Product photo on a dark stage, lit from behind in the unit's LED colour.
+/// Without a photo (offline, not downloaded yet) a ring stands in for the device.
+pub fn device_preview(ui: &mut Ui, photo: Option<&TextureHandle>, glow: Option<LightingSetting>, label: &str) {
     let width = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 170.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(width, DEVICE_PREVIEW_HEIGHT), Sense::hover());
     let painter = ui.painter();
     painter.rect_filled(rect, CornerRadius::same(10), Color32::from_rgb(0x0A, 0x0D, 0x10));
     painter.rect_stroke(
@@ -342,20 +344,45 @@ pub fn lighting_glow_preview(ui: &mut Ui, color: RgbColor, brightness_percent: u
         Stroke::new(1.0, GRID_LINE),
         StrokeKind::Inside,
     );
+    if let Some(setting) = glow {
+        paint_led_glow(ui, rect, setting);
+    }
+    match photo {
+        Some(texture) => paint_photo_fitted(ui, rect.shrink(12.0), texture),
+        None => paint_placeholder_ring(ui, rect, glow),
+    }
+    paint_preview_label(ui, rect, label);
+}
 
-    let intensity = brightness_percent as f32 / 100.0;
-    let glow_color = to_color32(color);
+fn paint_led_glow(ui: &Ui, rect: Rect, setting: LightingSetting) {
+    let intensity = setting.brightness_percent as f32 / 100.0;
+    let glow_color = to_color32(setting.color);
     for ring in (1..=12).rev() {
         let radius = 30.0 + ring as f32 * 7.0;
         let alpha = intensity * 0.06 * (13 - ring) as f32 / 12.0;
-        painter.circle_filled(rect.center(), radius, glow_color.gamma_multiply(alpha));
+        ui.painter()
+            .circle_filled(rect.center(), radius, glow_color.gamma_multiply(alpha));
     }
-    painter.circle_stroke(
-        rect.center(),
-        42.0,
-        Stroke::new(3.0, glow_color.gamma_multiply(0.25 + intensity * 0.75)),
-    );
-    painter.text(
+}
+
+fn paint_photo_fitted(ui: &Ui, area: Rect, texture: &TextureHandle) {
+    let photo_size = texture.size_vec2();
+    let scale = (area.width() / photo_size.x).min(area.height() / photo_size.y);
+    let photo_rect = Rect::from_center_size(area.center(), photo_size * scale);
+    egui::Image::new(texture).paint_at(ui, photo_rect);
+}
+
+fn paint_placeholder_ring(ui: &Ui, rect: Rect, glow: Option<LightingSetting>) {
+    let ring_color = match glow {
+        Some(setting) => to_color32(setting.color).gamma_multiply(0.25 + setting.brightness_percent as f32 / 133.0),
+        None => STRONG_BORDER,
+    };
+    ui.painter()
+        .circle_stroke(rect.center(), 42.0, Stroke::new(3.0, ring_color));
+}
+
+fn paint_preview_label(ui: &Ui, rect: Rect, label: &str) {
+    ui.painter().text(
         rect.left_bottom() + vec2(12.0, -10.0),
         Align2::LEFT_BOTTOM,
         label,

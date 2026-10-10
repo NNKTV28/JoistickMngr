@@ -1,6 +1,6 @@
 //! Lighting: live colour and brightness editing for the X56 stick and throttle.
 
-use eframe::egui::{self, RichText, Slider, Ui};
+use eframe::egui::{self, RichText, Slider, TextureHandle, Ui};
 
 use crate::app::JoystickManagerApp;
 use crate::driver_status::vendor_release_for;
@@ -134,11 +134,15 @@ impl JoystickManagerApp {
         let column_count = if ui.available_width() > 760.0 { 2 } else { 1 };
         let mut changed_unit = None;
         for row_units in LIGHTING_UNITS.chunks(column_count) {
+            let row_photos: Vec<Option<TextureHandle>> = row_units
+                .iter()
+                .map(|device_kind| self.product_photo(ui.ctx(), *device_kind))
+                .collect();
             ui.columns(column_count, |columns| {
-                for (column, device_kind) in columns.iter_mut().zip(row_units) {
+                for ((column, device_kind), photo) in columns.iter_mut().zip(row_units).zip(&row_photos) {
                     let mut setting = self.lighting_editor.setting(*device_kind);
                     let hex_input = self.lighting_editor.hex_input_mut(*device_kind);
-                    if show_unit_editor(column, *device_kind, &mut setting, hex_input) {
+                    if show_unit_editor(column, *device_kind, photo.as_ref(), &mut setting, hex_input) {
                         changed_unit = Some((*device_kind, setting));
                     }
                 }
@@ -240,6 +244,7 @@ impl JoystickManagerApp {
 fn show_unit_editor(
     ui: &mut Ui,
     device_kind: DeviceKind,
+    photo: Option<&TextureHandle>,
     setting: &mut LightingSetting,
     hex_input: &mut String,
 ) -> bool {
@@ -252,12 +257,7 @@ fn show_unit_editor(
             });
         });
         ui.add_space(6.0);
-        lighting_glow_preview(
-            ui,
-            setting.color,
-            setting.brightness_percent,
-            device_kind.definition().short_name,
-        );
+        device_preview(ui, photo, Some(*setting), device_kind.definition().short_name);
         ui.add_space(10.0);
 
         caption(ui, "Presets");

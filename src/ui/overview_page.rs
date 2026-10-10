@@ -1,6 +1,6 @@
 //! Overview: one card per device plus a strip of live axis meters.
 
-use eframe::egui::Ui;
+use eframe::egui::{TextureHandle, Ui};
 
 use crate::app::{JoystickManagerApp, Page};
 use crate::device_scanner::{ConnectedDevice, ScanState};
@@ -43,13 +43,23 @@ impl JoystickManagerApp {
         let column_count = ((ui.available_width() / DEVICE_CARD_MINIMUM_WIDTH) as usize).clamp(1, 3);
         let mut opened_page = None;
         for row_kinds in DeviceKind::ALL.chunks(column_count) {
+            let row_photos: Vec<Option<TextureHandle>> = row_kinds
+                .iter()
+                .map(|device_kind| self.product_photo(ui.ctx(), *device_kind))
+                .collect();
             ui.columns(column_count, |columns| {
-                for (column, device_kind) in columns.iter_mut().zip(row_kinds) {
+                for ((column, device_kind), photo) in columns.iter_mut().zip(row_kinds).zip(&row_photos) {
                     let connected_device = connected_devices
                         .iter()
                         .find(|device| device.definition.kind == *device_kind);
                     let lighting = self.displayed_lighting(*device_kind);
-                    if show_device_card(column, device_kind.definition(), connected_device, lighting) {
+                    let card_content = DeviceCardContent {
+                        definition: device_kind.definition(),
+                        connected_device,
+                        lighting,
+                        photo: photo.as_ref(),
+                    };
+                    if show_device_card(column, &card_content) {
                         opened_page = Some(Page::Device(*device_kind));
                     }
                 }
@@ -133,13 +143,22 @@ fn describe_scan_state(scan_state: &ScanState, connected_devices: &[ConnectedDev
     }
 }
 
-/// Draws one device card. Returns true when "Details" was clicked.
-fn show_device_card(
-    ui: &mut Ui,
-    definition: &KnownDevice,
-    connected_device: Option<&ConnectedDevice>,
+/// Everything one device card shows.
+struct DeviceCardContent<'a> {
+    definition: &'static KnownDevice,
+    connected_device: Option<&'a ConnectedDevice>,
     lighting: Option<LightingSetting>,
-) -> bool {
+    photo: Option<&'a TextureHandle>,
+}
+
+/// Draws one device card. Returns true when "Details" was clicked.
+fn show_device_card(ui: &mut Ui, content: &DeviceCardContent) -> bool {
+    let DeviceCardContent {
+        definition,
+        connected_device,
+        lighting,
+        photo,
+    } = *content;
     let mut details_clicked = false;
     card(ui, |ui| {
         ui.horizontal(|ui| {
@@ -156,18 +175,8 @@ fn show_device_card(
         });
         ui.add_space(6.0);
 
-        let glow_color = lighting.filter(|_| definition.supports_rgb_lighting);
-        match glow_color {
-            Some(setting) => {
-                lighting_glow_preview(ui, setting.color, setting.brightness_percent, definition.short_name)
-            }
-            None => lighting_glow_preview(
-                ui,
-                crate::profiles::RgbColor::new(0x2A, 0x32, 0x3A),
-                40,
-                definition.short_name,
-            ),
-        }
+        let led_glow = lighting.filter(|_| definition.supports_rgb_lighting);
+        device_preview(ui, photo, led_glow, definition.short_name);
         ui.add_space(6.0);
 
         key_value_grid(
