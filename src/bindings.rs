@@ -8,6 +8,7 @@ use crate::keyboard_keys::key_name;
 use crate::known_devices::DeviceKind;
 use crate::layers::BindingLayer;
 use crate::localization::{tr, tr_format};
+use crate::press_styles::PressStyle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AxisDirection {
@@ -365,6 +366,9 @@ pub struct InputBinding {
     pub action: OutputAction,
     #[serde(default)]
     pub layer: BindingLayer,
+    /// How presses of a button, hat or axis switch turn into output. Analog bindings ignore it.
+    #[serde(default)]
+    pub press_style: PressStyle,
     /// Switched-off bindings stay in the profile but do nothing.
     #[serde(default = "binding_is_enabled_by_default")]
     pub enabled: bool,
@@ -380,6 +384,7 @@ impl InputBinding {
             source,
             action,
             layer,
+            press_style: PressStyle::WhileHeld,
             enabled: true,
         }
     }

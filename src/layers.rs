@@ -32,23 +32,37 @@ impl ButtonReference {
     }
 }
 
-/// Which buttons select the mode and which one shifts, as set up for a profile.
+/// The buttons the throttle's mode switch holds down in positions 1, 2 and 3.
+/// They are part of the hardware, so every profile shares them.
+pub type ModeSwitchButtons = [Option<ButtonReference>; MODE_COUNT];
+
+/// 1..=3 for the position the mode switch is in, or `None` when it is not set up.
+pub fn selected_mode(
+    mode_switch: &ModeSwitchButtons,
+    snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+) -> Option<u8> {
+    mode_switch
+        .iter()
+        .position(|button| button.is_some_and(|button| button.is_pressed(snapshots)))
+        .map(|index| index as u8 + 1)
+}
+
+/// The profile's shift button, which gives every control a second job while it is held.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LayerSetup {
-    /// The button held down while the mode switch is in position 1, 2 and 3.
-    pub mode_buttons: [Option<ButtonReference>; MODE_COUNT],
     pub shift_button: Option<ButtonReference>,
 }
 
 impl LayerSetup {
-    pub fn active_layer(&self, snapshots: &HashMap<DeviceKind, ControllerSnapshot>) -> ActiveLayer {
-        let mode = self
-            .mode_buttons
-            .iter()
-            .position(|button| button.is_some_and(|button| button.is_pressed(snapshots)))
-            .map(|index| index as u8 + 1);
-        let shift_is_held = self.shift_button.is_some_and(|button| button.is_pressed(snapshots));
-        ActiveLayer { mode, shift_is_held }
+    pub fn active_layer(
+        &self,
+        mode_switch: &ModeSwitchButtons,
+        snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+    ) -> ActiveLayer {
+        ActiveLayer {
+            mode: selected_mode(mode_switch, snapshots),
+            shift_is_held: self.shift_button.is_some_and(|button| button.is_pressed(snapshots)),
+        }
     }
 }
 

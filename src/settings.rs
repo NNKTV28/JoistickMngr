@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::layers::{MODE_COUNT, ModeSwitchButtons};
 use crate::localization::Language;
 use crate::storage::{application_data_directory, read_json_file, write_json_file};
 
@@ -21,6 +22,10 @@ pub struct AppSettings {
     pub switch_profiles_for_games: bool,
     pub language: Language,
     pub check_for_updates: bool,
+    /// The buttons the throttle's M1 / M2 / M3 switch holds down.
+    pub mode_switch_buttons: ModeSwitchButtons,
+    /// Profile to switch to in each mode switch position; `None` keeps the current profile.
+    pub profiles_by_mode: [Option<String>; MODE_COUNT],
     /// Master switch for key, mouse and virtual controller mapping.
     pub mapping_enabled: bool,
     pub active_profile_name: String,
@@ -38,6 +43,8 @@ impl Default for AppSettings {
             switch_profiles_for_games: true,
             language: Language::default(),
             check_for_updates: true,
+            mode_switch_buttons: [None; MODE_COUNT],
+            profiles_by_mode: [None, None, None],
             mapping_enabled: false,
             active_profile_name: crate::profiles::DEFAULT_PROFILE_NAME.to_owned(),
         }

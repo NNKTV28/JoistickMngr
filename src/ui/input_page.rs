@@ -20,10 +20,13 @@ impl JoystickManagerApp {
     pub(crate) fn show_input_page(&mut self, ui: &mut Ui) {
         let mut reset_clicked = false;
         let mut control_panel_clicked = false;
-        page_header(ui, "Live · 100 Hz", "Input tester", None, |ui| {
+        let mut show_raw_input = self.show_raw_input;
+        page_header(ui, "Live", "Input tester", None, |ui| {
             control_panel_clicked = secondary_button(ui, "Open joy.cpl").clicked();
             reset_clicked = secondary_button(ui, "Reset statistics").clicked();
+            ui.checkbox(&mut show_raw_input, tr("Show raw readings"));
         });
+        self.show_raw_input = show_raw_input;
         if reset_clicked {
             self.services.input_reader.reset_statistics();
         }
@@ -47,7 +50,13 @@ impl JoystickManagerApp {
 
         self.show_drift_card(ui);
         ui.add_space(18.0);
-        show_device_panels(ui, &snapshots);
+        let displayed_snapshots = if self.show_raw_input {
+            snapshots.clone()
+        } else {
+            let calibration = self.app_state.lock().unwrap().calibration.clone();
+            apply_drift_correction(&snapshots, &calibration)
+        };
+        show_device_panels(ui, &displayed_snapshots);
         ui.add_space(18.0);
         let active_profile = self.app_state.lock().unwrap().effective_profile();
         let statistics_per_device: Vec<Vec<AxisStatistics>> = snapshots
@@ -298,4 +307,21 @@ fn show_axis_health_rows(
         }
         ui.end_row();
     }
+}
+
+/// The same readings with each axis's drift correction applied, as games receive them through the app.
+fn apply_drift_correction(
+    snapshots: &[(DeviceKind, ControllerSnapshot)],
+    calibration: &CalibrationStore,
+) -> Vec<(DeviceKind, ControllerSnapshot)> {
+    snapshots
+        .iter()
+        .map(|(device_kind, snapshot)| {
+            let mut corrected = snapshot.clone();
+            for (axis_index, value) in corrected.axis_values.iter_mut().enumerate() {
+                *value = calibration.correct(*device_kind, axis_index, *value);
+            }
+            (*device_kind, corrected)
+        })
+        .collect()
 }

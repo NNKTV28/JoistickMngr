@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::app_state::SharedAppState;
+use crate::automation::apply_current_lighting;
 use crate::bindings::{
     AxisDirection, ControllerAxis, InputBinding, InputSource, MouseButtonKind, OutputAction, ScreenAxis,
     VirtualControllerKind, WheelDirection,
@@ -18,7 +19,9 @@ use crate::calibration::CalibrationStore;
 use crate::input_injection::InputBatch;
 use crate::input_reader::{ControllerSnapshot, ControllerUpdate, InputReaderService};
 use crate::known_devices::DeviceKind;
-use crate::layers::LayerSetup;
+use crate::layers::{LayerSetup, MODE_COUNT, ModeSwitchButtons, selected_mode};
+use crate::lighting::LightingService;
+use crate::press_styles::{PressStyle, PressTracker};
 use crate::profiles::AxisTuning;
 use crate::thread_priority::{raise_current_thread_priority, request_one_millisecond_timer_resolution};
 use crate::virtual_gamepad::{GamepadState, VirtualGamepad};
@@ -48,7 +51,7 @@ pub struct MappingEngine {
 }
 
 impl MappingEngine {
-    pub fn start(app_state: SharedAppState, input_reader: &InputReaderService) -> Self {
+    pub fn start(app_state: SharedAppState, input_reader: &InputReaderService, lighting: LightingService) -> Self {
         let engine = Self {
             virtual_controller_status: Arc::new(Mutex::new(VirtualControllerStatus::NotUsed)),
         };
@@ -56,7 +59,7 @@ impl MappingEngine {
         let status = Arc::clone(&engine.virtual_controller_status);
         std::thread::Builder::new()
             .name("key-mapping".into())
-            .spawn(move || MappingWorker::new(app_state, status).run(updates))
+            .spawn(move || MappingWorker::new(app_state, status, lighting).run(updates))
             .expect("key mapping thread starts");
         engine
     }
@@ -75,6 +78,8 @@ struct MappingConfiguration {
     layer_setup: LayerSetup,
     axis_tunings: Vec<AxisTuning>,
     calibration: CalibrationStore,
+    mode_switch_buttons: ModeSwitchButtons,
+    profiles_by_mode: [Option<String>; MODE_COUNT],
 }
 
 /// Everything the bindings ask for right now.
@@ -89,10 +94,15 @@ struct DesiredOutputs {
 
 struct MappingWorker {
     app_state: SharedAppState,
+    lighting: LightingService,
+    /// The profile the mode switch last asked for, so a change is acted on exactly once.
+    applied_mode_profile: Option<String>,
     virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>,
     configuration: MappingConfiguration,
     last_configuration_refresh: Instant,
     snapshots: HashMap<DeviceKind, ControllerSnapshot>,
+    /// Recent presses of each binding, by its position in the binding list.
+    press_trackers: HashMap<usize, PressTracker>,
     held_keys: HashSet<u16>,
     held_mouse_buttons: HashSet<MouseButtonKind>,
     last_wheel_notch: HashMap<usize, Instant>,
@@ -105,13 +115,20 @@ struct MappingWorker {
 }
 
 impl MappingWorker {
-    fn new(app_state: SharedAppState, virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>) -> Self {
+    fn new(
+        app_state: SharedAppState,
+        virtual_controller_status: Arc<Mutex<VirtualControllerStatus>>,
+        lighting: LightingService,
+    ) -> Self {
         Self {
             app_state,
+            lighting,
+            applied_mode_profile: None,
             virtual_controller_status,
             configuration: MappingConfiguration::default(),
             last_configuration_refresh: Instant::now() - CONFIGURATION_REFRESH_INTERVAL,
             snapshots: HashMap::new(),
+            press_trackers: HashMap::new(),
             held_keys: HashSet::new(),
             held_mouse_buttons: HashSet::new(),
             last_wheel_notch: HashMap::new(),
@@ -134,6 +151,7 @@ impl MappingWorker {
                 Err(RecvTimeoutError::Disconnected) => break,
             }
             self.refresh_configuration_when_due();
+            self.follow_mode_switch();
             self.keep_virtual_controller_matching_configuration();
             self.apply_bindings();
         }
@@ -154,6 +172,7 @@ impl MappingWorker {
         }
         let state = self.app_state.lock().unwrap();
         let profile = state.effective_profile();
+        let previous_bindings = std::mem::take(&mut self.configuration.bindings);
         self.configuration = MappingConfiguration {
             is_enabled: state.settings.mapping_enabled,
             bindings: profile
@@ -165,8 +184,28 @@ impl MappingWorker {
             layer_setup: profile.layer_setup,
             axis_tunings: profile.axis_tunings,
             calibration: state.calibration.clone(),
+            mode_switch_buttons: state.settings.mode_switch_buttons,
+            profiles_by_mode: state.settings.profiles_by_mode.clone(),
         };
+        if self.configuration.bindings != previous_bindings {
+            self.press_trackers.clear();
+        }
         self.last_configuration_refresh = Instant::now();
+    }
+
+    /// Switches to the profile set for the mode switch position, the moment the switch is flipped.
+    fn follow_mode_switch(&mut self) {
+        let selected_mode = selected_mode(&self.configuration.mode_switch_buttons, &self.snapshots);
+        let wanted_profile =
+            selected_mode.and_then(|mode| self.configuration.profiles_by_mode[usize::from(mode) - 1].clone());
+        if wanted_profile == self.applied_mode_profile {
+            return;
+        }
+        self.app_state.lock().unwrap().mode_profile_name = wanted_profile.clone();
+        self.applied_mode_profile = wanted_profile;
+        apply_current_lighting(&self.app_state, &self.lighting);
+        self.last_configuration_refresh = Instant::now() - CONFIGURATION_REFRESH_INTERVAL;
+        self.refresh_configuration_when_due();
     }
 
     fn wanted_virtual_controller(&self) -> VirtualControllerKind {
@@ -223,7 +262,12 @@ impl MappingWorker {
         self.last_iteration = Instant::now();
         let desired = if self.configuration.is_enabled {
             let pulse_phase = pulse_phase(self.started_at.elapsed());
-            collect_desired_outputs(&self.configuration, &self.snapshots, pulse_phase)
+            collect_desired_outputs(
+                &self.configuration,
+                &self.snapshots,
+                &mut self.press_trackers,
+                pulse_phase,
+            )
         } else {
             DesiredOutputs::default()
         };
@@ -313,28 +357,55 @@ impl MappingWorker {
 fn collect_desired_outputs(
     configuration: &MappingConfiguration,
     snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+    press_trackers: &mut HashMap<usize, PressTracker>,
     pulse_phase: f64,
 ) -> DesiredOutputs {
     let mut desired = DesiredOutputs::default();
-    let active_layer = configuration.layer_setup.active_layer(snapshots);
-    let bindings_in_layer = configuration
-        .bindings
-        .iter()
-        .enumerate()
-        .filter(|(_, binding)| binding.enabled && binding.layer.matches(active_layer));
-    for (binding_index, binding) in bindings_in_layer {
+    let now = Instant::now();
+    let active_layer = configuration
+        .layer_setup
+        .active_layer(&configuration.mode_switch_buttons, snapshots);
+    for (binding_index, binding) in configuration.bindings.iter().enumerate() {
         let Some(snapshot) = snapshots.get(&binding.source.device()) else {
             continue;
         };
+        let is_in_layer = binding.enabled && binding.layer.matches(active_layer);
         if binding.source.is_analog() {
+            if !is_in_layer {
+                continue;
+            }
             if let Some(position) = tuned_axis_position(binding.source, snapshot, configuration) {
                 add_analog_output(&mut desired, binding.action, position, pulse_phase);
             }
-        } else if binding.source.is_active(snapshot) {
+            continue;
+        }
+        let is_pressed = is_in_layer && binding.source.is_active(snapshot);
+        let waits_for_double_tap = has_double_tap_sibling(&configuration.bindings, binding_index);
+        let output_is_on = press_trackers.entry(binding_index).or_default().update(
+            binding.press_style,
+            is_pressed,
+            now,
+            waits_for_double_tap,
+        );
+        if output_is_on {
             add_switch_output(&mut desired, binding_index, binding.action);
         }
     }
     desired
+}
+
+/// A single tap must wait briefly when the same control can also be double tapped,
+/// otherwise every double tap would fire the single-tap action first.
+fn has_double_tap_sibling(bindings: &[InputBinding], binding_index: usize) -> bool {
+    let binding = &bindings[binding_index];
+    binding.press_style == PressStyle::Tap
+        && bindings.iter().enumerate().any(|(other_index, other)| {
+            other_index != binding_index
+                && other.enabled
+                && other.press_style == PressStyle::DoubleTap
+                && other.source == binding.source
+                && other.layer == binding.layer
+        })
 }
 
 fn add_analog_output(

@@ -16,13 +16,14 @@
 - Binding list grouped by device with live activity, on/off switch and editing
 - Stick drift correction: measured rest centre and jitter, applied to every mapped output
 - Lighting effects: static, breathing, rainbow, two-colour fade and strobe, with adjustable speed
+- 30-second drift measurement, corrected values in the input tester with a raw readings switch
+- One profile per mode switch position (M1 / M2 / M3), loaded the moment the switch is flipped
+- Press styles: while held, toggle, short tap, long hold and double tap
 
 ## Planned
 
 Next in line, roughly in this order.
 
-- **Tap, hold and double-tap** – different actions depending on how a button is pressed, plus a toggle mode
-  that keeps a key held until the next press.
 - **Macros** – one button sends a sequence of keys with delays.
 - **Hide the real HOTAS from games** – use HidHide so games only see the virtual controller and never get
   input twice.

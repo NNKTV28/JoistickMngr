@@ -76,9 +76,16 @@ impl JoystickManagerApp {
     }
 
     fn show_active_profile_card(&mut self, ui: &mut Ui) {
-        let (profile_name, started_by_game) = {
+        let (profile_name, profile_source_caption) = {
             let state = self.app_state.lock().unwrap();
-            (state.effective_profile_name(), state.game_profile_name.is_some())
+            let caption = if state.mode_profile_name.is_some() {
+                "Mode profile"
+            } else if state.game_profile_name.is_some() {
+                "Game profile"
+            } else {
+                "Active profile"
+            };
+            (state.effective_profile_name(), caption)
         };
         let lighting_status = describe_lighting_status(&self.services.lighting.availability());
         Frame::new()
@@ -87,7 +94,7 @@ impl JoystickManagerApp {
             .inner_margin(Margin::same(14))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                show_active_profile_details(ui, &profile_name, started_by_game, lighting_status);
+                show_active_profile_details(ui, &profile_name, profile_source_caption, lighting_status);
             });
     }
 }
@@ -95,17 +102,10 @@ impl JoystickManagerApp {
 fn show_active_profile_details(
     ui: &mut Ui,
     profile_name: &str,
-    started_by_game: bool,
+    profile_source_caption: &str,
     lighting_status: (&str, egui::Color32),
 ) {
-    caption(
-        ui,
-        if started_by_game {
-            "Game profile"
-        } else {
-            "Active profile"
-        },
-    );
+    caption(ui, profile_source_caption);
     ui.label(RichText::new(profile_name).font(semibold_font(15.0)));
     ui.horizontal(|ui| {
         muted_text(ui, "Lighting ·");

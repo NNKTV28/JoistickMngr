@@ -21,6 +21,7 @@ mod lighting_effects;
 mod localization;
 mod mapping_engine;
 mod mapping_presets;
+mod press_styles;
 mod product_images;
 mod profiles;
 mod settings;
@@ -99,11 +100,12 @@ fn run_command_line_task(arguments: &[String]) -> Option<i32> {
 
 fn start_background_services(app_state: &SharedAppState) -> BackgroundServices {
     let input_reader = InputReaderService::start();
+    let lighting = LightingService::start();
     BackgroundServices {
-        mapping_engine: MappingEngine::start(Arc::clone(app_state), &input_reader),
+        mapping_engine: MappingEngine::start(Arc::clone(app_state), &input_reader, lighting.clone()),
         device_scanner: DeviceScannerService::start(),
         input_reader,
-        lighting: LightingService::start(),
+        lighting,
         windows_update: WindowsUpdateService::default(),
         updater: UpdateService::default(),
     }

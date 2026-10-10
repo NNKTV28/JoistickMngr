@@ -13,7 +13,7 @@ const CALIBRATION_FILE_NAME: &str = "calibration.json";
 /// Extra room on top of the measured jitter, so readings at the edge of the noise never leak through.
 const DEADZONE_SAFETY_FACTOR: f64 = 1.5;
 const MINIMUM_DEADZONE: f64 = 0.01;
-const MAXIMUM_DEADZONE: f64 = 0.2;
+const MAXIMUM_DEADZONE: f64 = 0.25;
 const MINIMUM_SAMPLE_COUNT: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -28,13 +28,21 @@ pub struct AxisCalibration {
 
 impl AxisCalibration {
     /// Builds a calibration from readings taken while the axis was left alone.
-    pub fn from_rest_samples(device: DeviceKind, axis_index: usize, samples: &[f64]) -> Option<Self> {
-        if samples.len() < MINIMUM_SAMPLE_COUNT {
+    /// `steady_samples` are taken at a fixed rate and give the true resting point; `every_reading`
+    /// holds each report the device sent, so even brief jitter spikes widen the deadzone.
+    pub fn from_rest_samples(
+        device: DeviceKind,
+        axis_index: usize,
+        steady_samples: &[f64],
+        every_reading: &[f64],
+    ) -> Option<Self> {
+        if steady_samples.len() < MINIMUM_SAMPLE_COUNT {
             return None;
         }
-        let rest_center = samples.iter().sum::<f64>() / samples.len() as f64;
-        let largest_wander = samples
+        let rest_center = steady_samples.iter().sum::<f64>() / steady_samples.len() as f64;
+        let largest_wander = steady_samples
             .iter()
+            .chain(every_reading)
             .map(|sample| (sample - rest_center).abs())
             .fold(0.0, f64::max);
         let wander_as_share_of_half_travel = largest_wander / 0.5;
@@ -116,7 +124,7 @@ mod tests {
         let samples: Vec<f64> = (0..50)
             .map(|step| 0.53 + if step % 2 == 0 { 0.004 } else { -0.004 })
             .collect();
-        AxisCalibration::from_rest_samples(DeviceKind::Joystick, 0, &samples).unwrap()
+        AxisCalibration::from_rest_samples(DeviceKind::Joystick, 0, &samples, &[]).unwrap()
     }
 
     #[test]
@@ -135,7 +143,14 @@ mod tests {
     }
 
     #[test]
+    fn brief_spike_between_samples_widens_the_deadzone() {
+        let steady: Vec<f64> = vec![0.5; 50];
+        let calibration = AxisCalibration::from_rest_samples(DeviceKind::Joystick, 0, &steady, &[0.56]).unwrap();
+        assert_eq!(calibration.correct(0.56), 0.5);
+    }
+
+    #[test]
     fn too_few_samples_give_no_calibration() {
-        assert!(AxisCalibration::from_rest_samples(DeviceKind::Joystick, 0, &[0.5, 0.5]).is_none());
+        assert!(AxisCalibration::from_rest_samples(DeviceKind::Joystick, 0, &[0.5, 0.5], &[]).is_none());
     }
 }

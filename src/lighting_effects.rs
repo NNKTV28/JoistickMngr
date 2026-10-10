@@ -19,22 +19,13 @@ pub enum LightingEffect {
     #[default]
     Static,
     /// Brightness rises and falls smoothly.
-    Breathing {
-        cycle_seconds: f32,
-    },
+    Breathing { cycle_seconds: f32 },
     /// Runs through every hue.
-    Rainbow {
-        cycle_seconds: f32,
-    },
+    Rainbow { cycle_seconds: f32 },
     /// Blends back and forth between the main colour and `second_color`.
-    Fade {
-        second_color: RgbColor,
-        cycle_seconds: f32,
-    },
+    Fade { second_color: RgbColor, cycle_seconds: f32 },
     /// Flashes on and off.
-    Strobe {
-        cycle_seconds: f32,
-    },
+    Strobe { cycle_seconds: f32 },
 }
 
 /// The kinds of effect, without their settings, for choosing one in the interface.

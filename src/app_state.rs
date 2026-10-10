@@ -14,6 +14,9 @@ pub struct AppState {
     pub calibration: CalibrationStore,
     /// Set while a game with its own profile is running; it overrides the manually chosen profile.
     pub game_profile_name: Option<String>,
+    /// Set while the mode switch is in a position that has its own profile; it wins over everything else,
+    /// because flipping the switch is the most direct choice the user makes.
+    pub mode_profile_name: Option<String>,
     pub lighting_is_dimmed: bool,
 }
 
@@ -26,6 +29,7 @@ impl AppState {
             profile_store: ProfileStore::load(),
             calibration: CalibrationStore::load(),
             game_profile_name: None,
+            mode_profile_name: None,
             lighting_is_dimmed: false,
         }
     }
@@ -33,8 +37,9 @@ impl AppState {
     /// The profile that should be applied right now.
     pub fn effective_profile(&self) -> Profile {
         let wanted_name = self
-            .game_profile_name
+            .mode_profile_name
             .as_deref()
+            .or(self.game_profile_name.as_deref())
             .unwrap_or(&self.settings.active_profile_name);
         self.profile_store
             .find_by_name(wanted_name)

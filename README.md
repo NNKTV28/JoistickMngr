@@ -16,11 +16,14 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
   a virtual Xbox or PlayStation (DualShock 4) controller. Mapping reads the devices' HID reports directly and
   reacts to each report the moment it arrives, so it keeps working while a game has focus. The virtual
   controller needs the free [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver.
-- **Stick drift correction** – measures where each stick axis really rests and how much it jitters, then
-  re-centres it and hides the jitter for everything the app sends.
-- **Layers and analog keys** – the throttle's M1 / M2 / M3 switch and an optional shift button give every
-  control several jobs. An axis can drive a key the way a magnetic keyboard does: the key is pulsed in
+- **Stick drift correction** – measures every stick axis at rest for 30 seconds to find where it really rests
+  and how much it wanders, then re-centres it and hides the jitter for everything the app sends. The input
+  tester shows corrected values, with a switch to see the raw readings.
+- **Modes, layers and analog keys** – each position of the throttle's M1 / M2 / M3 switch can load its own
+  profile the moment it is flipped, and an optional shift button gives every control a second job. An axis can drive a key the way a magnetic keyboard does: the key is pulsed in
   proportion to how far the axis is pushed.
+- **Press styles** – a button can act while held, toggle on and off, or fire only on a short tap, a long hold
+  or a double tap, so one button can do several things.
 - **Profiles** – named setups with lighting, axis tuning and key mapping, activated manually or automatically
   when a game starts. Import and export as JSON.
 - **USB power saving** – turns off the Windows power saving that is a common cause of X56 disconnects.

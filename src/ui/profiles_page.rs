@@ -243,8 +243,9 @@ impl JoystickManagerApp {
                 .retain(|profile| profile.name != deleted_name);
             if state.settings.active_profile_name == deleted_name {
                 state.settings.active_profile_name = state.profile_store.profiles[0].name.clone();
-                state.settings.save()?;
             }
+            rename_mode_profile(&mut state.settings.profiles_by_mode, &deleted_name, None);
+            state.settings.save()?;
             state.profile_store.save()?;
             self.profile_editor = ProfileEditor::new(&state);
         }
@@ -277,8 +278,9 @@ impl JoystickManagerApp {
             }
             if state.settings.active_profile_name == original_name {
                 state.settings.active_profile_name = draft.name.clone();
-                state.settings.save()?;
             }
+            rename_mode_profile(&mut state.settings.profiles_by_mode, &original_name, Some(&draft.name));
+            state.settings.save()?;
             state.profile_store.save()?;
         }
         self.profile_editor.select(&draft);
@@ -481,4 +483,13 @@ fn find_logitech_profiles(folder: &Path) -> Vec<PathBuf> {
 fn pick_game_executable_name() -> Option<String> {
     let path = rfd::FileDialog::new().add_filter("Programs", &["exe"]).pick_file()?;
     Some(path.file_name()?.to_string_lossy().into_owned())
+}
+
+/// Keeps the mode switch pointing at a profile after it is renamed (`Some(new name)`) or deleted (`None`).
+fn rename_mode_profile(profiles_by_mode: &mut [Option<String>], old_name: &str, new_name: Option<&str>) {
+    for chosen_profile in profiles_by_mode.iter_mut() {
+        if chosen_profile.as_deref() == Some(old_name) {
+            *chosen_profile = new_name.map(str::to_owned);
+        }
+    }
 }

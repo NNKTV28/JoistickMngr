@@ -18,6 +18,7 @@ use crate::layers::{ActiveLayer, BindingLayer, ButtonReference, MODE_COUNT};
 use crate::localization::{tr, tr_format};
 use crate::mapping_engine::VirtualControllerStatus;
 use crate::mapping_presets::{add_controller_starter_layout, add_mouse_look_layout, add_wasd_flight_layout};
+use crate::press_styles::PressStyle;
 use crate::profiles::Profile;
 use crate::system_actions::open_in_default_handler;
 use crate::theme::*;
@@ -233,6 +234,7 @@ pub struct MappingEditor {
     controller_axis: ControllerAxis,
     controller_axis_inverted: bool,
     layer: BindingLayer,
+    press_style: PressStyle,
 }
 
 impl Default for MappingEditor {
@@ -253,6 +255,7 @@ impl Default for MappingEditor {
             controller_axis: ControllerAxis::LeftStickX,
             controller_axis_inverted: false,
             layer: BindingLayer::default(),
+            press_style: PressStyle::WhileHeld,
         }
     }
 }
@@ -269,6 +272,7 @@ impl MappingEditor {
         self.detected_control = Some(DetectedControl::from_input_source(binding.source, push_direction));
         self.action_kind = ActionKind::of_action(binding.action);
         self.layer = binding.layer;
+        self.press_style = binding.press_style;
         self.load_action_details(binding.action);
     }
 
@@ -342,7 +346,15 @@ impl MappingEditor {
 
     fn draft_binding(&self) -> Option<InputBinding> {
         let source = self.detected_control?.to_input_source(self.action_kind.needs_axis())?;
-        Some(InputBinding::new(source, self.chosen_action(), self.layer))
+        let press_style = if source.is_analog() {
+            PressStyle::WhileHeld
+        } else {
+            self.press_style
+        };
+        Some(InputBinding {
+            press_style,
+            ..InputBinding::new(source, self.chosen_action(), self.layer)
+        })
     }
 }
 
@@ -601,12 +613,16 @@ impl JoystickManagerApp {
             }
         });
         show_layer_choice(ui, &mut editor.layer);
+        if !editor.action_kind.needs_axis() {
+            show_press_style_choice(ui, &mut editor.press_style);
+        }
     }
 
     /// Bindings grouped by device, each with a live light, an on/off switch, Edit and Remove.
     fn show_binding_list_card(&mut self, ui: &mut Ui, profile: &Profile) {
         let snapshots = self.current_snapshots();
-        let active_layer = profile.layer_setup.active_layer(&snapshots);
+        let mode_switch = self.app_state.lock().unwrap().settings.mode_switch_buttons;
+        let active_layer = profile.layer_setup.active_layer(&mode_switch, &snapshots);
         let calibration = self.app_state.lock().unwrap().calibration.clone();
         let mut requested_action = None;
         card(ui, |ui| {
@@ -737,10 +753,10 @@ impl JoystickManagerApp {
             return;
         };
         let button = ButtonReference { device, button_number };
-        self.change_effective_profile(|profile| match mode_index {
-            Some(index) => profile.layer_setup.mode_buttons[index] = Some(button),
-            None => profile.layer_setup.shift_button = Some(button),
-        });
+        match mode_index {
+            Some(index) => self.update_settings(|settings| settings.mode_switch_buttons[index] = Some(button)),
+            None => self.change_effective_profile(|profile| profile.layer_setup.shift_button = Some(button)),
+        }
     }
 
     fn check_key_capture(&mut self, ui: &Ui) {
@@ -780,51 +796,100 @@ impl JoystickManagerApp {
         }
     }
 
-    /// Mode buttons (the throttle's M1 / M2 / M3 switch) and the shift button for the current profile.
+    /// The throttle's M1 / M2 / M3 switch (shared by all profiles, each position can pick a profile)
+    /// and the current profile's shift button.
     fn show_layers_card(&mut self, ui: &mut Ui, profile: &Profile) {
-        let active_layer = profile.layer_setup.active_layer(&self.current_snapshots());
+        let (mode_switch, mut profiles_by_mode, profile_names) = {
+            let state = self.app_state.lock().unwrap();
+            let names: Vec<String> = state
+                .profile_store
+                .profiles
+                .iter()
+                .map(|profile| profile.name.clone())
+                .collect();
+            (
+                state.settings.mode_switch_buttons,
+                state.settings.profiles_by_mode.clone(),
+                names,
+            )
+        };
+        let active_layer = profile
+            .layer_setup
+            .active_layer(&mode_switch, &self.current_snapshots());
         let detecting_purpose = self
             .mapping_editor
             .detection
             .as_ref()
             .map(|detection| detection.purpose);
+        let original_profiles_by_mode = profiles_by_mode.clone();
         let mut detection_requested = None;
         card(ui, |ui| {
             ui.horizontal(|ui| {
-                card_title(ui, "Layers");
+                card_title(ui, "Mode switch and layers");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     status_pill(ui, &tr_format("Now: {}", &[&active_layer.describe()]), Tone::Info);
                 });
             });
             muted_text(
                 ui,
-                "Pick the button each position of the mode switch holds down, and an optional shift button. \
-                 Bindings can then be limited to one mode or to the shift layer.",
+                "Detect the button each position of the throttle's mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
             );
             ui.add_space(6.0);
             egui::Grid::new("layer-setup")
-                .num_columns(3)
+                .num_columns(4)
                 .spacing([18.0, 6.0])
                 .show(ui, |ui| {
                     for mode_index in 0..MODE_COUNT {
                         let purpose = DetectionPurpose::ModeButton(mode_index);
-                        let button = profile.layer_setup.mode_buttons[mode_index];
                         let label = tr_format("Mode {}", &[&(mode_index + 1)]);
-                        if show_layer_button_row(ui, &label, button, detecting_purpose == Some(purpose)) {
+                        if show_layer_button_row(
+                            ui,
+                            &label,
+                            mode_switch[mode_index],
+                            detecting_purpose == Some(purpose),
+                        ) {
                             detection_requested = Some(purpose);
                         }
+                        show_mode_profile_choice(ui, mode_index, &mut profiles_by_mode[mode_index], &profile_names);
+                        ui.end_row();
                     }
                     let shift_purpose = DetectionPurpose::ShiftButton;
                     let shift_button = profile.layer_setup.shift_button;
                     if show_layer_button_row(ui, "Shift", shift_button, detecting_purpose == Some(shift_purpose)) {
                         detection_requested = Some(shift_purpose);
                     }
+                    muted_text(ui, "This profile only");
+                    ui.end_row();
                 });
         });
+        if profiles_by_mode != original_profiles_by_mode {
+            self.update_settings(|settings| settings.profiles_by_mode = profiles_by_mode);
+        }
         if let Some(purpose) = detection_requested {
             self.start_control_detection(purpose);
         }
     }
+}
+
+/// The profile a mode switch position switches to, or none to keep the current one.
+fn show_mode_profile_choice(
+    ui: &mut Ui,
+    mode_index: usize,
+    chosen_profile: &mut Option<String>,
+    profile_names: &[String],
+) {
+    let selected_text = chosen_profile
+        .clone()
+        .unwrap_or_else(|| tr("Keep current profile").to_owned());
+    ComboBox::from_id_salt(("mode-profile", mode_index))
+        .selected_text(selected_text)
+        .width(220.0)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(chosen_profile, None, tr("Keep current profile"));
+            for name in profile_names {
+                ui.selectable_value(chosen_profile, Some(name.clone()), name.as_str());
+            }
+        });
 }
 
 /// The always-available tile. Returns the layout the user asked to add, if any.
@@ -942,7 +1007,11 @@ fn show_device_binding_rows(
                 let family = binding.output_family();
                 category_tag(ui, family.label(), output_family_color(family));
                 ui.label(RichText::new(binding.action.describe()).color(text_color));
-                ui.label(RichText::new(binding.layer.describe()).size(13.0).color(TEXT_MUTED));
+                ui.label(
+                    RichText::new(describe_layer_and_press_style(binding))
+                        .size(13.0)
+                        .color(TEXT_MUTED),
+                );
                 if secondary_button(ui, "Edit").clicked() {
                     clicked_action = Some(BindingListAction::Edit(*index));
                 }
@@ -1098,19 +1167,17 @@ fn main_hat_push(direction: HatDirection) -> Option<HatPush> {
     }
 }
 
-/// One row of the layer setup. Returns true when the user asks to detect the button.
+/// The first three cells of a layer setup row. Returns true when the user asks to detect the button.
 fn show_layer_button_row(ui: &mut Ui, label: &str, button: Option<ButtonReference>, is_detecting: bool) -> bool {
     caption(ui, label);
     let button_text = button.map_or_else(|| tr("Not set").to_owned(), |button| button.describe());
     monospace_text(ui, button_text);
-    let detect_clicked = if is_detecting {
+    if is_detecting {
         ui.label(RichText::new(tr("Press it now…")).color(LIVE_CYAN));
         false
     } else {
         secondary_button(ui, "Detect").clicked()
-    };
-    ui.end_row();
-    detect_clicked
+    }
 }
 
 fn show_layer_choice(ui: &mut Ui, layer: &mut BindingLayer) {
@@ -1130,4 +1197,27 @@ fn show_layer_choice(ui: &mut Ui, layer: &mut BindingLayer) {
             });
         ui.checkbox(&mut layer.shift_layer, tr("Only while shift is held"));
     });
+}
+
+fn show_press_style_choice(ui: &mut Ui, press_style: &mut PressStyle) {
+    ui.horizontal_wrapped(|ui| {
+        caption(ui, "4 · Press");
+        ComboBox::from_id_salt("press-style")
+            .selected_text(press_style.label())
+            .show_ui(ui, |ui| {
+                for style in PressStyle::ALL {
+                    ui.selectable_value(press_style, style, style.label());
+                }
+            });
+        muted_text(ui, press_style.explanation());
+    });
+}
+
+/// "All modes", or "All modes · Double tap" when the binding reacts to a special kind of press.
+fn describe_layer_and_press_style(binding: &InputBinding) -> String {
+    let layer_text = binding.layer.describe();
+    if binding.press_style == PressStyle::WhileHeld || binding.source.is_analog() {
+        return layer_text;
+    }
+    format!("{layer_text} · {}", binding.press_style.label())
 }

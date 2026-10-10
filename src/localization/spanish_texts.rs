@@ -608,6 +608,43 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
     ("Open settings folder", "Abrir carpeta de ajustes"),
     ("Made by NikiCoding ·", "Hecho por NikiCoding ·"),
     ("Could not save settings: {}", "No se pudieron guardar los ajustes: {}"),
+    // Mode switch, raw readings and press styles
+    ("Live", "En vivo"),
+    ("Show raw readings", "Mostrar lecturas sin corregir"),
+    ("Mode switch and layers", "Selector de modo y capas"),
+    (
+        "Detect the button each position of the throttle's mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
+        "Detecta el botón que mantiene pulsado cada posición del selector de modo del acelerador. Cada posición puede cambiar a su propio perfil, y las asignaciones pueden limitarse a un modo. El botón de mayúsculas da a los controles de este perfil una segunda función mientras se mantiene pulsado.",
+    ),
+    ("Keep current profile", "Mantener el perfil actual"),
+    ("This profile only", "Solo este perfil"),
+    ("Mode profile", "Perfil del modo"),
+    ("4 · Press", "4 · Pulsación"),
+    ("While held", "Mientras se mantiene"),
+    ("Toggle on / off", "Activar / desactivar"),
+    ("Short tap", "Toque corto"),
+    ("Long hold", "Pulsación larga"),
+    ("Double tap", "Doble toque"),
+    (
+        "The output stays on while the control is held.",
+        "La salida permanece activa mientras se mantiene el control.",
+    ),
+    (
+        "First press switches the output on, the next press switches it off.",
+        "La primera pulsación activa la salida y la siguiente la desactiva.",
+    ),
+    (
+        "A quick press sends a short press. Holding does nothing.",
+        "Una pulsación rápida envía una pulsación corta. Mantener no hace nada.",
+    ),
+    (
+        "Fires after holding for half a second and stays on until release.",
+        "Se activa tras mantener medio segundo y sigue activa hasta soltar.",
+    ),
+    (
+        "Two quick presses send a short press.",
+        "Dos pulsaciones rápidas envían una pulsación corta.",
+    ),
     // Tray
     ("Open Joystick Manager", "Abrir Joystick Manager"),
     ("Quit", "Salir"),
