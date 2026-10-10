@@ -1,0 +1,54 @@
+# Joystick Manager
+
+A native Windows app for managing a flight sim setup: the **Logitech X56 H.O.T.A.S.** stick and throttle
+and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https://github.com/emilk/egui).
+
+## Features
+
+- **Overview** – connection state, VID:PID, serial number, driver version and current colour for every device.
+- **Drivers** – every USB interface with its driver provider, version, date and INF, compared against the
+  latest Logitech release. Searches Windows Update for newer signed drivers and installs them in one click.
+- **Lighting** – colour and brightness for the X56 stick and throttle through Logitech's DirectOutput SDK,
+  with presets, a "link both units" switch and changes shown on the hardware live.
+- **Input tester** – live axes, buttons and hats at 100 Hz, axis jitter measurement, range recording and a
+  button press log to catch ghost inputs.
+- **Profiles** – named setups with lighting and axis tuning, activated manually or automatically when a game
+  starts. Import and export as JSON.
+- **USB power saving** – turns off the Windows power saving that is a common cause of X56 disconnects.
+- **Tray and start-up** – closes to the notification area, starts with Windows (elevated, via Task Scheduler),
+  dims the lights when the PC is idle.
+
+## Install
+
+Download `JoystickManager-Setup-x.y.z.exe` from the
+[latest release](https://github.com/NNKTV28/JoistickMngr/releases/latest) and run it. The installer adds a
+Start menu entry (so the app shows up in Windows search) and can register the app to start when you sign in.
+
+Lighting needs the Logitech X56 software installed, because it provides the DirectOutput service.
+
+## Build from source
+
+```powershell
+cargo build --release
+```
+
+Debug builds run without administrator rights; release builds ask for elevation because driver installs,
+device restarts and power settings need it.
+
+To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) and run:
+
+```powershell
+./scripts/prepare-signing-certificate.ps1
+./scripts/sign-file.ps1 -FilePath target/release/JoystickManager.exe
+./scripts/build-installer.ps1 -Version 0.1.0
+```
+
+## Releases and signing
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds, signs and publishes the installer.
+The signing certificate comes from the `SIGNING_CERTIFICATE_BASE64` and `SIGNING_CERTIFICATE_PASSWORD`
+repository secrets; `scripts/new-signing-certificate.ps1` creates a NikiCoding certificate and stores it there.
+
+## License
+
+MIT © [NikiCoding](https://nikicoding.com)
