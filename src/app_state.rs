@@ -3,12 +3,15 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::calibration::CalibrationStore;
 use crate::profiles::{Profile, ProfileStore};
 use crate::settings::AppSettings;
 
 pub struct AppState {
     pub settings: AppSettings,
     pub profile_store: ProfileStore,
+    /// Stick drift corrections, measured per physical axis.
+    pub calibration: CalibrationStore,
     /// Set while a game with its own profile is running; it overrides the manually chosen profile.
     pub game_profile_name: Option<String>,
     pub lighting_is_dimmed: bool,
@@ -21,6 +24,7 @@ impl AppState {
         Self {
             settings: AppSettings::load(),
             profile_store: ProfileStore::load(),
+            calibration: CalibrationStore::load(),
             game_profile_name: None,
             lighting_is_dimmed: false,
         }

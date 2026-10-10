@@ -454,3 +454,60 @@ pub fn format_axis_value(value: f64, rests_at_center: bool) -> String {
         format!("{value:.2}")
     }
 }
+
+/// A right-pointing arrow drawn with lines, so it never depends on a font having the glyph.
+pub fn flow_arrow(ui: &mut Ui) {
+    let (rect, _) = ui.allocate_exact_size(vec2(22.0, 16.0), Sense::hover());
+    let painter = ui.painter();
+    let stroke = Stroke::new(1.5, TEXT_MUTED);
+    let middle_y = rect.center().y;
+    let tip = pos2(rect.max.x - 3.0, middle_y);
+    painter.line_segment([pos2(rect.min.x + 3.0, middle_y), tip], stroke);
+    painter.line_segment([tip, pos2(tip.x - 5.0, middle_y - 4.0)], stroke);
+    painter.line_segment([tip, pos2(tip.x - 5.0, middle_y + 4.0)], stroke);
+}
+
+/// A dot that glows amber while the thing it belongs to is active.
+pub fn activity_light(ui: &mut Ui, is_active: bool) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(14.0), Sense::hover());
+    let painter = ui.painter();
+    if is_active {
+        painter.circle_filled(rect.center(), 7.0, ACCENT_AMBER.gamma_multiply(0.25));
+        painter.circle_filled(rect.center(), 4.5, ACCENT_AMBER);
+    } else {
+        painter.circle_stroke(rect.center(), 4.0, Stroke::new(1.0, STRONG_BORDER));
+    }
+}
+
+/// A short bar showing how far (0..=1) an analog control is pushed.
+pub fn deflection_meter(ui: &mut Ui, deflection: f64) {
+    let (rect, _) = ui.allocate_exact_size(vec2(44.0, 6.0), Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(3), INSET_BACKGROUND);
+    let filled_width = rect.width() * deflection.clamp(0.0, 1.0) as f32;
+    painter.rect_filled(
+        Rect::from_min_size(rect.min, vec2(filled_width, rect.height())),
+        CornerRadius::same(3),
+        ACCENT_AMBER,
+    );
+}
+
+/// Small coloured label naming a category, such as the kind of output a binding produces.
+/// Drawn at a fixed size so table rows never stretch it.
+pub fn category_tag(ui: &mut Ui, text: &str, color: Color32) -> Response {
+    let galley = ui
+        .painter()
+        .layout_no_wrap(tr(text).to_owned(), egui::FontId::proportional(12.0), color);
+    let tag_size = galley.size() + vec2(12.0, 4.0);
+    let (rect, response) = ui.allocate_exact_size(tag_size, Sense::hover());
+    let painter = ui.painter();
+    painter.rect_filled(rect, CornerRadius::same(4), color.gamma_multiply(0.15));
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(4),
+        Stroke::new(1.0, color.gamma_multiply(0.5)),
+        StrokeKind::Inside,
+    );
+    painter.galley(rect.center() - galley.size() / 2.0, galley, color);
+    response
+}

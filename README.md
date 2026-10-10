@@ -16,6 +16,8 @@ and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https:/
   a virtual Xbox or PlayStation (DualShock 4) controller. Mapping reads the devices' HID reports directly and
   reacts to each report the moment it arrives, so it keeps working while a game has focus. The virtual
   controller needs the free [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases/latest) driver.
+- **Stick drift correction** – measures where each stick axis really rests and how much it jitters, then
+  re-centres it and hides the jitter for everything the app sends.
 - **Layers and analog keys** – the throttle's M1 / M2 / M3 switch and an optional shift button give every
   control several jobs. An axis can drive a key the way a magnetic keyboard does: the key is pulsed in
   proportion to how far the axis is pushed.

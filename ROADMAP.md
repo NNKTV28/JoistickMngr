@@ -12,6 +12,9 @@
 - Axis deadzone, curve and saturation applied to mapped axes
 - Automatic updates from GitHub releases
 - English and Spanish interface
+- Output tiles for keyboard & mouse, Xbox and PlayStation with one-click layouts (WASD flight, mouse look, controller starter)
+- Binding list grouped by device with live activity, on/off switch and editing
+- Stick drift correction: measured rest centre and jitter, applied to every mapped output
 
 ## Planned
 
@@ -34,5 +37,5 @@ Ideas that are wanted but not scheduled yet.
 - **Game-driven lighting** – LEDs react to the simulator (DCS, MSFS) through their export interfaces.
 - **Cheat sheet** – printable sheet or on-screen overlay of what every button does in the current profile.
 - **Disconnect watchdog** – notify when a device drops out and restore its lighting when it returns.
-- **Calibration** – set each axis's minimum, maximum and centre to compensate for wear.
+- **Range calibration** – set each axis's minimum and maximum to compensate for wear (centre and jitter are already corrected).
 - **Custom drivers** – explore own drivers to improve how the devices behave in Windows.

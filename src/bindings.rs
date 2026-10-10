@@ -117,28 +117,32 @@ impl InputSource {
         }
     }
 
+    /// The control and the device, such as "X56 Stick · Button 3".
     pub fn describe(&self) -> String {
+        format!(
+            "{} · {}",
+            self.device().definition().short_name,
+            self.describe_control()
+        )
+    }
+
+    /// The control alone, such as "Button 3" or "Pitch (Y) +".
+    pub fn describe_control(&self) -> String {
         let device = self.device().definition();
         match *self {
-            InputSource::Button { button_number, .. } => {
-                tr_format("{} · Button {}", &[&device.short_name, &button_number])
-            }
+            InputSource::Button { button_number, .. } => tr_format("Button {}", &[&button_number]),
             InputSource::AxisPastThreshold {
                 axis_index, direction, ..
             } => {
-                let arrow = if direction == AxisDirection::Increasing {
+                let sign = if direction == AxisDirection::Increasing {
                     "+"
                 } else {
-                    "−"
+                    "-"
                 };
-                format!("{} · {} {arrow}", device.short_name, device.axis_name(axis_index))
+                format!("{} {sign}", device.axis_name(axis_index))
             }
-            InputSource::Axis { axis_index, .. } => {
-                tr_format("{} · {} (axis)", &[&device.short_name, &device.axis_name(axis_index)])
-            }
-            InputSource::Hat { hat_index, push, .. } => {
-                tr_format("{} · Hat {} {}", &[&device.short_name, &(hat_index + 1), &push.label()])
-            }
+            InputSource::Axis { axis_index, .. } => tr_format("{} (axis)", &[&device.axis_name(axis_index)]),
+            InputSource::Hat { hat_index, push, .. } => tr_format("Hat {} {}", &[&(hat_index + 1), &push.label()]),
         }
     }
 }
@@ -361,12 +365,56 @@ pub struct InputBinding {
     pub action: OutputAction,
     #[serde(default)]
     pub layer: BindingLayer,
+    /// Switched-off bindings stay in the profile but do nothing.
+    #[serde(default = "binding_is_enabled_by_default")]
+    pub enabled: bool,
+}
+
+fn binding_is_enabled_by_default() -> bool {
+    true
 }
 
 impl InputBinding {
+    pub fn new(source: InputSource, action: OutputAction, layer: BindingLayer) -> Self {
+        Self {
+            source,
+            action,
+            layer,
+            enabled: true,
+        }
+    }
+
+    /// Which kind of output the binding produces, for grouping and colour tags in the interface.
+    pub fn output_family(&self) -> OutputFamily {
+        match self.action {
+            OutputAction::Key { .. } | OutputAction::PulsedKey { .. } => OutputFamily::Keyboard,
+            OutputAction::MouseButton { .. } | OutputAction::MouseWheel { .. } | OutputAction::MouseMove { .. } => {
+                OutputFamily::Mouse
+            }
+            OutputAction::ControllerButton { .. } | OutputAction::ControllerAxis { .. } => OutputFamily::Controller,
+        }
+    }
+
     /// Analog sources drive analog actions; switch-like sources drive key, button and wheel actions.
     pub fn is_consistent(&self) -> bool {
         self.source.is_analog() == self.action.needs_analog_source()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputFamily {
+    Keyboard,
+    Mouse,
+    Controller,
+}
+
+impl OutputFamily {
+    pub fn label(self) -> &'static str {
+        tr(match self {
+            OutputFamily::Keyboard => "Key",
+            OutputFamily::Mouse => "Mouse",
+            OutputFamily::Controller => "Controller",
+        })
     }
 }
 
@@ -379,12 +427,6 @@ pub enum VirtualControllerKind {
 }
 
 impl VirtualControllerKind {
-    pub const ALL: [VirtualControllerKind; 3] = [
-        VirtualControllerKind::None,
-        VirtualControllerKind::Xbox360,
-        VirtualControllerKind::DualShock4,
-    ];
-
     pub fn label(self) -> &'static str {
         tr(match self {
             VirtualControllerKind::None => "No virtual controller",
@@ -426,17 +468,17 @@ mod tests {
 
     #[test]
     fn analog_actions_need_analog_sources() {
-        let binding = InputBinding {
-            source: InputSource::Button {
+        let binding = InputBinding::new(
+            InputSource::Button {
                 device: DeviceKind::Joystick,
                 button_number: 1,
             },
-            action: OutputAction::ControllerAxis {
+            OutputAction::ControllerAxis {
                 axis: ControllerAxis::LeftStickX,
                 inverted: false,
             },
-            layer: Default::default(),
-        };
+            Default::default(),
+        );
         assert!(!binding.is_consistent());
     }
 }

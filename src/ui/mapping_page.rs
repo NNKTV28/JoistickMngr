@@ -3,19 +3,21 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, ComboBox, RichText, Slider, Ui};
+use eframe::egui::{self, Color32, ComboBox, RichText, Slider, Ui};
 
 use crate::app::JoystickManagerApp;
 use crate::bindings::{
     AxisDirection, ControllerAxis, ControllerButton, HatPush, InputBinding, InputSource, MouseButtonKind, OutputAction,
-    ScreenAxis, VirtualControllerKind, WheelDirection,
+    OutputFamily, ScreenAxis, VirtualControllerKind, WheelDirection,
 };
+use crate::calibration::CalibrationStore;
 use crate::input_reader::{ControllerSnapshot, HatDirection};
 use crate::keyboard_keys::{all_keyboard_keys, find_key_for_egui_key, key_name};
 use crate::known_devices::DeviceKind;
-use crate::layers::{BindingLayer, ButtonReference, MODE_COUNT};
+use crate::layers::{ActiveLayer, BindingLayer, ButtonReference, MODE_COUNT};
 use crate::localization::{tr, tr_format};
 use crate::mapping_engine::VirtualControllerStatus;
+use crate::mapping_presets::{add_controller_starter_layout, add_mouse_look_layout, add_wasd_flight_layout};
 use crate::profiles::Profile;
 use crate::system_actions::open_in_default_handler;
 use crate::theme::*;
@@ -25,6 +27,11 @@ use crate::virtual_gamepad::VIGEM_BUS_DOWNLOAD_URL;
 const DETECTION_TIMEOUT: Duration = Duration::from_secs(10);
 const AXIS_DETECTION_DISTANCE: f64 = 0.3;
 const DEFAULT_MOUSE_SPEED: f32 = 1200.0;
+const OUTPUT_TILE_MINIMUM_WIDTH: f32 = 300.0;
+/// Deflection above which an analog binding's light turns on.
+const ANALOG_ACTIVITY_THRESHOLD: f64 = 0.08;
+/// When an existing axis switch is edited, its threshold is rebuilt from two points this far apart.
+const THRESHOLD_EDIT_SPREAD: f64 = 0.2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ActionKind {
@@ -47,6 +54,18 @@ impl ActionKind {
         ActionKind::ControllerButton,
         ActionKind::ControllerAxis,
     ];
+
+    fn of_action(action: OutputAction) -> Self {
+        match action {
+            OutputAction::Key { .. } => ActionKind::Key,
+            OutputAction::PulsedKey { .. } => ActionKind::PulsedKey,
+            OutputAction::MouseButton { .. } => ActionKind::MouseButton,
+            OutputAction::MouseWheel { .. } => ActionKind::MouseWheel,
+            OutputAction::MouseMove { .. } => ActionKind::MouseMove,
+            OutputAction::ControllerButton { .. } => ActionKind::ControllerButton,
+            OutputAction::ControllerAxis { .. } => ActionKind::ControllerAxis,
+        }
+    }
 
     fn label(self) -> &'static str {
         tr(match self {
@@ -93,6 +112,51 @@ impl DetectedControl {
         matches!(self, DetectedControl::Axis { .. })
     }
 
+    /// Rebuilds the control of an existing binding so it can be edited. `push_direction` is the
+    /// direction of a pulsed key, which is stored on the action rather than the source.
+    fn from_input_source(source: InputSource, push_direction: Option<AxisDirection>) -> Self {
+        match source {
+            InputSource::Button { device, button_number } => DetectedControl::Button { device, button_number },
+            InputSource::Hat {
+                device,
+                hat_index,
+                push,
+            } => DetectedControl::Hat {
+                device,
+                hat_index,
+                push,
+            },
+            InputSource::Axis { device, axis_index } => DetectedControl::Axis {
+                device,
+                axis_index,
+                rest_value: 0.5,
+                moved_value: if push_direction == Some(AxisDirection::Decreasing) {
+                    0.0
+                } else {
+                    1.0
+                },
+            },
+            InputSource::AxisPastThreshold {
+                device,
+                axis_index,
+                direction,
+                threshold,
+            } => {
+                let step_toward_movement = if direction == AxisDirection::Increasing {
+                    THRESHOLD_EDIT_SPREAD
+                } else {
+                    -THRESHOLD_EDIT_SPREAD
+                };
+                DetectedControl::Axis {
+                    device,
+                    axis_index,
+                    rest_value: threshold - step_toward_movement,
+                    moved_value: threshold + step_toward_movement,
+                }
+            }
+        }
+    }
+
     /// An axis becomes a full analog source for analog actions, or a switch half-way to where it was moved.
     fn to_input_source(self, wants_analog: bool) -> Option<InputSource> {
         match self {
@@ -128,6 +192,13 @@ impl DetectedControl {
             }),
         }
     }
+
+    fn describe(self) -> String {
+        let source = self
+            .to_input_source(self.is_axis())
+            .expect("a detected control always converts to its own kind of source");
+        source.describe()
+    }
 }
 
 /// What a detected control will be used for.
@@ -144,12 +215,15 @@ struct ControlDetection {
     started_at: Instant,
 }
 
-/// The binding being put together in the "Add a binding" card.
+/// The binding being put together, or changed, in the editor card.
 pub struct MappingEditor {
     detection: Option<ControlDetection>,
     detected_control: Option<DetectedControl>,
+    /// Position in the profile's binding list when an existing binding is being edited.
+    editing_index: Option<usize>,
     action_kind: ActionKind,
     virtual_key: u16,
+    key_search: String,
     is_capturing_key: bool,
     mouse_button: MouseButtonKind,
     wheel_direction: WheelDirection,
@@ -166,8 +240,10 @@ impl Default for MappingEditor {
         Self {
             detection: None,
             detected_control: None,
+            editing_index: None,
             action_kind: ActionKind::Key,
             virtual_key: u16::from(b'W'),
+            key_search: String::new(),
             is_capturing_key: false,
             mouse_button: MouseButtonKind::Left,
             wheel_direction: WheelDirection::Up,
@@ -182,6 +258,47 @@ impl Default for MappingEditor {
 }
 
 impl MappingEditor {
+    /// Fills the editor with an existing binding so it can be changed.
+    fn load_binding(&mut self, binding_index: usize, binding: &InputBinding) {
+        let push_direction = match binding.action {
+            OutputAction::PulsedKey { direction, .. } => Some(direction),
+            _ => None,
+        };
+        self.editing_index = Some(binding_index);
+        self.detection = None;
+        self.detected_control = Some(DetectedControl::from_input_source(binding.source, push_direction));
+        self.action_kind = ActionKind::of_action(binding.action);
+        self.layer = binding.layer;
+        self.load_action_details(binding.action);
+    }
+
+    fn load_action_details(&mut self, action: OutputAction) {
+        match action {
+            OutputAction::Key { virtual_key } | OutputAction::PulsedKey { virtual_key, .. } => {
+                self.virtual_key = virtual_key;
+            }
+            OutputAction::MouseButton { button } => self.mouse_button = button,
+            OutputAction::MouseWheel { direction } => self.wheel_direction = direction,
+            OutputAction::MouseMove {
+                screen_axis,
+                pixels_per_second,
+            } => {
+                self.screen_axis = screen_axis;
+                self.pixels_per_second = pixels_per_second;
+            }
+            OutputAction::ControllerButton { button } => self.controller_button = button,
+            OutputAction::ControllerAxis { axis, inverted } => {
+                self.controller_axis = axis;
+                self.controller_axis_inverted = inverted;
+            }
+        }
+    }
+
+    fn finish_editing(&mut self) {
+        self.editing_index = None;
+        self.detected_control = None;
+    }
+
     fn chosen_action(&self) -> OutputAction {
         match self.action_kind {
             ActionKind::Key => OutputAction::Key {
@@ -225,12 +342,24 @@ impl MappingEditor {
 
     fn draft_binding(&self) -> Option<InputBinding> {
         let source = self.detected_control?.to_input_source(self.action_kind.needs_axis())?;
-        Some(InputBinding {
-            source,
-            action: self.chosen_action(),
-            layer: self.layer,
-        })
+        Some(InputBinding::new(source, self.chosen_action(), self.layer))
     }
+}
+
+/// A one-click layout requested from the output tiles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LayoutRequest {
+    WasdFlight,
+    MouseLook,
+    ControllerStarter(VirtualControllerKind),
+}
+
+/// What the user did in the binding list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingListAction {
+    SwitchOnOrOff(usize),
+    Edit(usize),
+    Remove(usize),
 }
 
 impl JoystickManagerApp {
@@ -260,48 +389,72 @@ impl JoystickManagerApp {
             self.update_settings(|settings| settings.mapping_enabled = !mapping_enabled);
         }
 
-        self.show_virtual_controller_card(ui, &profile);
+        self.show_output_card(ui, &profile);
         ui.add_space(14.0);
-        self.show_layers_card(ui, &profile);
-        ui.add_space(14.0);
-        self.show_new_binding_card(ui);
+        self.show_binding_editor_card(ui);
         ui.add_space(14.0);
         self.show_binding_list_card(ui, &profile);
+        ui.add_space(14.0);
+        self.show_layers_card(ui, &profile);
     }
 
-    fn show_virtual_controller_card(&mut self, ui: &mut Ui, profile: &Profile) {
-        let mut chosen_kind = profile.virtual_controller;
+    /// Keyboard & mouse, Xbox and PlayStation side by side, each with its one-click layouts.
+    fn show_output_card(&mut self, ui: &mut Ui, profile: &Profile) {
         let status = self.services.mapping_engine.virtual_controller_status();
-        let mut add_starter_layout = false;
+        let mut layout_request = None;
+        let mut chosen_controller = profile.virtual_controller;
         card(ui, |ui| {
-            card_title(ui, "Virtual controller");
-            muted_text(ui, "Games see it as a real gamepad. PS5 games accept the DualShock 4.");
-            ui.add_space(6.0);
-            ui.horizontal_wrapped(|ui| {
-                for kind in VirtualControllerKind::ALL {
-                    ui.selectable_value(&mut chosen_kind, kind, tr(kind.label()));
+            card_title(ui, "Outputs");
+            muted_text(
+                ui,
+                "Mix freely: one profile can send keys, mouse input and a virtual controller at once.",
+            );
+            ui.add_space(8.0);
+            let column_count = ((ui.available_width() / OUTPUT_TILE_MINIMUM_WIDTH) as usize).clamp(1, 3);
+            ui.columns(column_count, |columns| {
+                if let Some(request) = show_keyboard_tile(&mut columns[0]) {
+                    layout_request = Some(request);
+                }
+                for (tile_index, controller_kind) in [VirtualControllerKind::Xbox360, VirtualControllerKind::DualShock4]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let column = &mut columns[(tile_index + 1) % column_count];
+                    if let Some(request) = show_controller_tile(column, controller_kind, &mut chosen_controller) {
+                        layout_request = Some(request);
+                    }
                 }
             });
-            ui.add_space(6.0);
+            ui.add_space(8.0);
             show_virtual_controller_status(ui, &status);
-            ui.add_space(6.0);
-            add_starter_layout = secondary_button(ui, "Add Xbox starter layout (sticks and throttles)").clicked();
         });
-        if chosen_kind != profile.virtual_controller {
-            self.change_effective_profile(|profile| profile.virtual_controller = chosen_kind);
+        if chosen_controller != profile.virtual_controller {
+            self.change_effective_profile(|profile| profile.virtual_controller = chosen_controller);
         }
-        if add_starter_layout {
-            self.change_effective_profile(add_xbox_starter_layout);
-            self.show_status("Starter layout added. Adjust or remove bindings below.", Tone::Success);
+        if let Some(request) = layout_request {
+            self.add_layout(request);
         }
     }
 
-    fn show_new_binding_card(&mut self, ui: &mut Ui) {
+    fn add_layout(&mut self, request: LayoutRequest) {
+        match request {
+            LayoutRequest::WasdFlight => self.change_effective_profile(add_wasd_flight_layout),
+            LayoutRequest::MouseLook => self.change_effective_profile(add_mouse_look_layout),
+            LayoutRequest::ControllerStarter(kind) => {
+                self.change_effective_profile(|profile| add_controller_starter_layout(profile, kind));
+            }
+        }
+        self.show_status("Layout added. Adjust or remove bindings below.", Tone::Success);
+    }
+
+    fn show_binding_editor_card(&mut self, ui: &mut Ui) {
         self.check_control_detection();
         self.check_key_capture(ui);
-        let mut add_clicked = false;
+        let is_editing = self.mapping_editor.editing_index.is_some();
+        let mut save_clicked = false;
+        let mut cancel_clicked = false;
         card(ui, |ui| {
-            card_title(ui, "Add a binding");
+            card_title(ui, if is_editing { "Edit binding" } else { "Add a binding" });
             ui.add_space(6.0);
             self.show_control_detection_row(ui);
             ui.add_space(10.0);
@@ -311,19 +464,45 @@ impl JoystickManagerApp {
             if self.mapping_editor.detected_control.is_some() && draft.is_none() {
                 ui.label(RichText::new(tr("Buttons and hats can only drive keys, clicks, the wheel or controller buttons. Move an axis for this action.")).color(WARNING_TEXT));
             }
-            add_clicked = enabled_primary_button(ui, draft.is_some(), "Add binding").clicked();
+            ui.horizontal(|ui| {
+                let save_label = if is_editing { "Save binding" } else { "Add binding" };
+                save_clicked = enabled_primary_button(ui, draft.is_some(), save_label).clicked();
+                if is_editing {
+                    cancel_clicked = secondary_button(ui, "Cancel").clicked();
+                }
+            });
         });
-        if add_clicked && let Some(binding) = self.mapping_editor.draft_binding() {
-            self.change_effective_profile(|profile| profile.bindings.push(binding));
-            self.mapping_editor.detected_control = None;
-            self.show_status(
-                tr_format(
-                    "Added: {} → {}",
-                    &[&binding.source.describe(), &binding.action.describe()],
-                ),
-                Tone::Success,
-            );
+        if cancel_clicked {
+            self.mapping_editor.finish_editing();
         }
+        if save_clicked && let Some(binding) = self.mapping_editor.draft_binding() {
+            self.save_draft_binding(binding);
+        }
+    }
+
+    /// Adds the new binding, or replaces the one being edited while keeping it switched on or off.
+    fn save_draft_binding(&mut self, binding: InputBinding) {
+        let editing_index = self.mapping_editor.editing_index;
+        self.change_effective_profile(|profile| match editing_index {
+            Some(index) if index < profile.bindings.len() => {
+                let was_enabled = profile.bindings[index].enabled;
+                profile.bindings[index] = InputBinding {
+                    enabled: was_enabled,
+                    ..binding
+                };
+            }
+            _ => profile.bindings.push(binding),
+        });
+        self.mapping_editor.finish_editing();
+        let template = if editing_index.is_some() {
+            "Saved: {} as {}"
+        } else {
+            "Added: {} as {}"
+        };
+        self.show_status(
+            tr_format(template, &[&binding.source.describe(), &binding.action.describe()]),
+            Tone::Success,
+        );
     }
 
     fn show_control_detection_row(&mut self, ui: &mut Ui) {
@@ -349,7 +528,7 @@ impl JoystickManagerApp {
                 return;
             }
             let detected_text = match self.mapping_editor.detected_control {
-                Some(control) => describe_detected_control(control),
+                Some(control) => control.describe(),
                 None => tr("Nothing chosen yet").to_owned(),
             };
             monospace_text(ui, detected_text);
@@ -365,10 +544,10 @@ impl JoystickManagerApp {
             caption(ui, "2 · Action");
             ComboBox::from_id_salt("action-kind")
                 .selected_text(editor.action_kind.label())
-                .width(260.0)
+                .width(300.0)
                 .show_ui(ui, |ui| {
                     for kind in ActionKind::ALL {
-                        ui.selectable_value(&mut editor.action_kind, kind, tr(kind.label()));
+                        ui.selectable_value(&mut editor.action_kind, kind, kind.label());
                     }
                 });
         });
@@ -424,8 +603,12 @@ impl JoystickManagerApp {
         show_layer_choice(ui, &mut editor.layer);
     }
 
+    /// Bindings grouped by device, each with a live light, an on/off switch, Edit and Remove.
     fn show_binding_list_card(&mut self, ui: &mut Ui, profile: &Profile) {
-        let mut removed_index = None;
+        let snapshots = self.current_snapshots();
+        let active_layer = profile.layer_setup.active_layer(&snapshots);
+        let calibration = self.app_state.lock().unwrap().calibration.clone();
+        let mut requested_action = None;
         card(ui, |ui| {
             ui.horizontal(|ui| {
                 card_title(ui, "Bindings");
@@ -433,48 +616,81 @@ impl JoystickManagerApp {
                     muted_text(ui, tr_format("{} in \"{}\"", &[&profile.bindings.len(), &profile.name]));
                 });
             });
-            ui.add_space(6.0);
             if profile.bindings.is_empty() {
+                ui.add_space(6.0);
                 muted_text(
                     ui,
                     "No bindings yet. Use Detect above, then pick what the control should do.",
                 );
                 return;
             }
-            egui::Grid::new("binding-list")
-                .num_columns(5)
-                .spacing([18.0, 8.0])
-                .show(ui, |ui| {
-                    for (index, binding) in profile.bindings.iter().enumerate() {
-                        monospace_text(ui, binding.source.describe());
-                        ui.label(RichText::new(tr("→")).color(TEXT_MUTED));
-                        ui.label(binding.action.describe());
-                        ui.label(RichText::new(binding.layer.describe()).color(TEXT_MUTED));
-                        if secondary_button(ui, "Remove").clicked() {
-                            removed_index = Some(index);
-                        }
-                        ui.end_row();
-                    }
-                });
+            for device in DeviceKind::ALL {
+                let device_bindings: Vec<(usize, &InputBinding)> = profile
+                    .bindings
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, binding)| binding.source.device() == device)
+                    .collect();
+                if device_bindings.is_empty() {
+                    continue;
+                }
+                ui.add_space(10.0);
+                caption(ui, device.definition().short_name);
+                let activity_context = ActivityContext {
+                    snapshot: snapshots.get(&device),
+                    active_layer,
+                    calibration: &calibration,
+                };
+                let grid_id = format!("bindings-{device:?}");
+                if let Some(action) = show_device_binding_rows(ui, &grid_id, &device_bindings, &activity_context) {
+                    requested_action = Some(action);
+                }
+            }
         });
-        if let Some(index) = removed_index {
-            self.change_effective_profile(|profile| {
-                profile.bindings.remove(index);
-            });
+        if let Some(action) = requested_action {
+            self.run_binding_list_action(action, profile);
         }
     }
 
-    fn start_control_detection(&mut self, purpose: DetectionPurpose) {
-        let baseline = DeviceKind::ALL
+    fn run_binding_list_action(&mut self, action: BindingListAction, profile: &Profile) {
+        match action {
+            BindingListAction::SwitchOnOrOff(index) => self.change_effective_profile(|profile| {
+                if let Some(binding) = profile.bindings.get_mut(index) {
+                    binding.enabled = !binding.enabled;
+                }
+            }),
+            BindingListAction::Edit(index) => {
+                if let Some(binding) = profile.bindings.get(index) {
+                    self.mapping_editor.load_binding(index, binding);
+                }
+            }
+            BindingListAction::Remove(index) => {
+                self.change_effective_profile(|profile| {
+                    if index < profile.bindings.len() {
+                        profile.bindings.remove(index);
+                    }
+                });
+                self.mapping_editor.finish_editing();
+            }
+        }
+    }
+
+    fn current_snapshots(&self) -> HashMap<DeviceKind, ControllerSnapshot> {
+        DeviceKind::ALL
             .into_iter()
             .filter_map(|device| Some((device, self.services.input_reader.snapshot(device)?)))
-            .collect();
+            .collect()
+    }
+
+    fn start_control_detection(&mut self, purpose: DetectionPurpose) {
         self.mapping_editor.detection = Some(ControlDetection {
             purpose,
-            baseline,
+            baseline: self.current_snapshots(),
             started_at: Instant::now(),
         });
-        self.mapping_editor.detected_control = None;
+        if purpose == DetectionPurpose::BindingControl {
+            self.mapping_editor.detected_control = None;
+        }
     }
 
     fn check_control_detection(&mut self) {
@@ -563,14 +779,247 @@ impl JoystickManagerApp {
             self.show_status(tr_format("Could not save the profile: {}", &[&error]), Tone::Danger);
         }
     }
+
+    /// Mode buttons (the throttle's M1 / M2 / M3 switch) and the shift button for the current profile.
+    fn show_layers_card(&mut self, ui: &mut Ui, profile: &Profile) {
+        let active_layer = profile.layer_setup.active_layer(&self.current_snapshots());
+        let detecting_purpose = self
+            .mapping_editor
+            .detection
+            .as_ref()
+            .map(|detection| detection.purpose);
+        let mut detection_requested = None;
+        card(ui, |ui| {
+            ui.horizontal(|ui| {
+                card_title(ui, "Layers");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    status_pill(ui, &tr_format("Now: {}", &[&active_layer.describe()]), Tone::Info);
+                });
+            });
+            muted_text(
+                ui,
+                "Pick the button each position of the mode switch holds down, and an optional shift button. \
+                 Bindings can then be limited to one mode or to the shift layer.",
+            );
+            ui.add_space(6.0);
+            egui::Grid::new("layer-setup")
+                .num_columns(3)
+                .spacing([18.0, 6.0])
+                .show(ui, |ui| {
+                    for mode_index in 0..MODE_COUNT {
+                        let purpose = DetectionPurpose::ModeButton(mode_index);
+                        let button = profile.layer_setup.mode_buttons[mode_index];
+                        let label = tr_format("Mode {}", &[&(mode_index + 1)]);
+                        if show_layer_button_row(ui, &label, button, detecting_purpose == Some(purpose)) {
+                            detection_requested = Some(purpose);
+                        }
+                    }
+                    let shift_purpose = DetectionPurpose::ShiftButton;
+                    let shift_button = profile.layer_setup.shift_button;
+                    if show_layer_button_row(ui, "Shift", shift_button, detecting_purpose == Some(shift_purpose)) {
+                        detection_requested = Some(shift_purpose);
+                    }
+                });
+        });
+        if let Some(purpose) = detection_requested {
+            self.start_control_detection(purpose);
+        }
+    }
 }
 
+/// The always-available tile. Returns the layout the user asked to add, if any.
+fn show_keyboard_tile(ui: &mut Ui) -> Option<LayoutRequest> {
+    let mut request = None;
+    output_tile_frame(true).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            card_title(ui, "Keyboard & mouse");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                status_pill(ui, "Always on", Tone::Success);
+            });
+        });
+        muted_text(ui, "Keys, clicks, scrolling and pointer movement. No driver needed.");
+        ui.add_space(6.0);
+        if secondary_button(ui, "Add WASD flight layout").clicked() {
+            request = Some(LayoutRequest::WasdFlight);
+        }
+        if secondary_button(ui, "Add mouse look (thumb stick)").clicked() {
+            request = Some(LayoutRequest::MouseLook);
+        }
+    });
+    request
+}
+
+/// One virtual controller tile. Switches `chosen_controller` when the user picks or drops this controller.
+fn show_controller_tile(
+    ui: &mut Ui,
+    controller_kind: VirtualControllerKind,
+    chosen_controller: &mut VirtualControllerKind,
+) -> Option<LayoutRequest> {
+    let is_chosen = *chosen_controller == controller_kind;
+    let mut request = None;
+    output_tile_frame(is_chosen).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            card_title(ui, controller_kind.label());
+            if is_chosen {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    status_pill(ui, "In use", Tone::Success);
+                });
+            }
+        });
+        let description = match controller_kind {
+            VirtualControllerKind::DualShock4 => {
+                "A DualShock 4 for games that want a PlayStation pad. PS5 games accept it."
+            }
+            _ => "An Xbox 360 controller, which nearly every PC game supports.",
+        };
+        muted_text(ui, description);
+        ui.add_space(6.0);
+        if is_chosen {
+            if secondary_button(ui, "Stop using").clicked() {
+                *chosen_controller = VirtualControllerKind::None;
+            }
+        } else if primary_button(ui, "Use this controller").clicked() {
+            *chosen_controller = controller_kind;
+        }
+        if secondary_button(ui, "Add starter layout").clicked() {
+            request = Some(LayoutRequest::ControllerStarter(controller_kind));
+        }
+    });
+    request
+}
+
+fn output_tile_frame(is_highlighted: bool) -> egui::Frame {
+    let border = if is_highlighted { ACCENT_AMBER } else { BORDER };
+    inset_tile_frame().stroke(egui::Stroke::new(1.0, border))
+}
+
+fn inset_tile_frame() -> egui::Frame {
+    egui::Frame::new()
+        .fill(INSET_BACKGROUND)
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::same(14))
+}
+
+/// What a binding row needs to tell whether it is firing right now.
+struct ActivityContext<'a> {
+    snapshot: Option<&'a ControllerSnapshot>,
+    active_layer: ActiveLayer,
+    calibration: &'a CalibrationStore,
+}
+
+/// Rows for one device's bindings. Returns the action the user clicked, if any.
+fn show_device_binding_rows(
+    ui: &mut Ui,
+    grid_id: &str,
+    device_bindings: &[(usize, &InputBinding)],
+    activity_context: &ActivityContext,
+) -> Option<BindingListAction> {
+    let mut clicked_action = None;
+    egui::Grid::new(grid_id)
+        .num_columns(9)
+        .spacing([12.0, 8.0])
+        .min_row_height(36.0)
+        .show(ui, |ui| {
+            for (index, binding) in device_bindings {
+                show_binding_activity(ui, binding, activity_context);
+                let mut is_enabled = binding.enabled;
+                if ui
+                    .checkbox(&mut is_enabled, "")
+                    .on_hover_text(tr("Switch this binding on or off"))
+                    .changed()
+                {
+                    clicked_action = Some(BindingListAction::SwitchOnOrOff(*index));
+                }
+                let text_color = if binding.enabled { TEXT_PRIMARY } else { TEXT_MUTED };
+                ui.label(
+                    RichText::new(binding.source.describe_control())
+                        .font(monospace_font(13.5))
+                        .color(text_color),
+                );
+                flow_arrow(ui);
+                let family = binding.output_family();
+                category_tag(ui, family.label(), output_family_color(family));
+                ui.label(RichText::new(binding.action.describe()).color(text_color));
+                ui.label(RichText::new(binding.layer.describe()).size(13.0).color(TEXT_MUTED));
+                if secondary_button(ui, "Edit").clicked() {
+                    clicked_action = Some(BindingListAction::Edit(*index));
+                }
+                if secondary_button(ui, "Remove").clicked() {
+                    clicked_action = Some(BindingListAction::Remove(*index));
+                }
+                ui.end_row();
+            }
+        });
+    clicked_action
+}
+
+/// A light for switch-like bindings, a small bar for analog ones.
+fn show_binding_activity(ui: &mut Ui, binding: &InputBinding, activity_context: &ActivityContext) {
+    let Some(snapshot) = activity_context.snapshot else {
+        activity_light(ui, false);
+        return;
+    };
+    let is_allowed = binding.enabled && binding.layer.matches(activity_context.active_layer);
+    match analog_deflection(binding, snapshot, activity_context.calibration) {
+        Some(deflection) => {
+            let shown_deflection = if is_allowed { deflection } else { 0.0 };
+            ui.horizontal(|ui| {
+                activity_light(ui, shown_deflection > ANALOG_ACTIVITY_THRESHOLD);
+                deflection_meter(ui, shown_deflection);
+            });
+        }
+        None => activity_light(ui, is_allowed && binding.source.is_active(snapshot)),
+    }
+}
+
+/// How far (0..=1) the axis behind an analog binding is pushed, in the direction that matters.
+fn analog_deflection(
+    binding: &InputBinding,
+    snapshot: &ControllerSnapshot,
+    calibration: &CalibrationStore,
+) -> Option<f64> {
+    let InputSource::Axis { device, axis_index } = binding.source else {
+        return None;
+    };
+    let value = calibration.correct(device, axis_index, snapshot.axis_value(axis_index)?);
+    let rests_at_center = device.definition().axis_rests_at_center(axis_index);
+    let deflection = match (binding.action, rests_at_center) {
+        (OutputAction::PulsedKey { direction, .. }, true) => match direction {
+            AxisDirection::Increasing => (value - 0.5) * 2.0,
+            AxisDirection::Decreasing => (0.5 - value) * 2.0,
+        },
+        (OutputAction::PulsedKey { direction, .. }, false) => match direction {
+            AxisDirection::Increasing => value,
+            AxisDirection::Decreasing => 1.0 - value,
+        },
+        (_, true) => (value - 0.5).abs() * 2.0,
+        (_, false) => value,
+    };
+    Some(deflection.clamp(0.0, 1.0))
+}
+
+fn output_family_color(family: OutputFamily) -> Color32 {
+    match family {
+        OutputFamily::Keyboard => ACCENT_AMBER,
+        OutputFamily::Mouse => LIVE_CYAN,
+        OutputFamily::Controller => SUCCESS_TEXT,
+    }
+}
+
+/// Key list with a search box, plus a button that picks the next key pressed on the real keyboard.
 fn show_key_choice(ui: &mut Ui, editor: &mut MappingEditor) {
     ComboBox::from_id_salt("keyboard-key")
         .selected_text(key_name(editor.virtual_key))
-        .height(320.0)
+        .height(360.0)
         .show_ui(ui, |ui| {
-            for key in all_keyboard_keys() {
+            ui.add(egui::TextEdit::singleline(&mut editor.key_search).hint_text(tr("Search keys")));
+            let search = editor.key_search.to_lowercase();
+            let matching_keys = all_keyboard_keys()
+                .iter()
+                .filter(|key| search.is_empty() || key.name.to_lowercase().contains(&search));
+            for key in matching_keys {
                 ui.selectable_value(&mut editor.virtual_key, key.virtual_key, key.name.as_str());
             }
         });
@@ -586,12 +1035,7 @@ fn show_key_choice(ui: &mut Ui, editor: &mut MappingEditor) {
 
 fn show_virtual_controller_status(ui: &mut Ui, status: &VirtualControllerStatus) {
     match status {
-        VirtualControllerStatus::NotUsed => {
-            muted_text(
-                ui,
-                "Not in use. Turn mapping on with a controller selected to plug it in.",
-            );
-        }
+        VirtualControllerStatus::NotUsed => {}
         VirtualControllerStatus::Connected(kind) => {
             status_pill(ui, &tr_format("{} connected", &[&kind.label()]), Tone::Success);
         }
@@ -606,29 +1050,6 @@ fn show_virtual_controller_status(ui: &mut Ui, status: &VirtualControllerStatus)
         }
         VirtualControllerStatus::Failed(message) => {
             ui.label(RichText::new(tr_format("Virtual controller failed: {}", &[message])).color(DANGER_TEXT));
-        }
-    }
-}
-
-fn describe_detected_control(control: DetectedControl) -> String {
-    match control {
-        DetectedControl::Button { device, button_number } => {
-            tr_format("{} · Button {}", &[&device.definition().short_name, &button_number])
-        }
-        DetectedControl::Hat {
-            device,
-            hat_index,
-            push,
-        } => tr_format(
-            "{} · Hat {} {}",
-            &[&device.definition().short_name, &(hat_index + 1), &push.label()],
-        ),
-        DetectedControl::Axis { device, axis_index, .. } => {
-            let definition = device.definition();
-            tr_format(
-                "{} · {} (axis)",
-                &[&definition.short_name, &definition.axis_name(axis_index)],
-            )
         }
     }
 }
@@ -677,84 +1098,10 @@ fn main_hat_push(direction: HatDirection) -> Option<HatPush> {
     }
 }
 
-/// Stick on the left stick, thumb stick on the right stick, throttles on the triggers.
-fn add_xbox_starter_layout(profile: &mut Profile) {
-    let axis_binding = |device: DeviceKind, axis_index: usize, axis: ControllerAxis, inverted: bool| InputBinding {
-        source: InputSource::Axis { device, axis_index },
-        action: OutputAction::ControllerAxis { axis, inverted },
-        layer: BindingLayer::default(),
-    };
-    profile.virtual_controller = VirtualControllerKind::Xbox360;
-    profile.bindings.extend([
-        axis_binding(DeviceKind::Joystick, 0, ControllerAxis::LeftStickX, false),
-        axis_binding(DeviceKind::Joystick, 1, ControllerAxis::LeftStickY, false),
-        axis_binding(DeviceKind::Joystick, 2, ControllerAxis::RightStickX, false),
-        axis_binding(DeviceKind::Joystick, 3, ControllerAxis::RightStickY, false),
-        axis_binding(DeviceKind::Throttle, 0, ControllerAxis::RightTrigger, true),
-        axis_binding(DeviceKind::Throttle, 1, ControllerAxis::LeftTrigger, true),
-    ]);
-}
-
-impl JoystickManagerApp {
-    /// Mode buttons (the throttle's M1 / M2 / M3 switch) and the shift button for the current profile.
-    fn show_layers_card(&mut self, ui: &mut Ui, profile: &Profile) {
-        let snapshots: HashMap<DeviceKind, ControllerSnapshot> = DeviceKind::ALL
-            .into_iter()
-            .filter_map(|device| Some((device, self.services.input_reader.snapshot(device)?)))
-            .collect();
-        let active_layer = profile.layer_setup.active_layer(&snapshots);
-        let detecting_purpose = self
-            .mapping_editor
-            .detection
-            .as_ref()
-            .map(|detection| detection.purpose);
-        let mut detection_requested = None;
-        card(ui, |ui| {
-            ui.horizontal(|ui| {
-                card_title(ui, "Layers");
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    status_pill(ui, &tr_format("Now: {}", &[&active_layer.describe()]), Tone::Info);
-                });
-            });
-            muted_text(
-                ui,
-                "Pick the button each position of the mode switch holds down, and an optional shift button. \
-                 Bindings can then be limited to one mode or to the shift layer.",
-            );
-            ui.add_space(6.0);
-            egui::Grid::new("layer-setup")
-                .num_columns(3)
-                .spacing([18.0, 6.0])
-                .show(ui, |ui| {
-                    for mode_index in 0..MODE_COUNT {
-                        let purpose = DetectionPurpose::ModeButton(mode_index);
-                        let button = profile.layer_setup.mode_buttons[mode_index];
-                        if show_layer_button_row(
-                            ui,
-                            &tr_format("Mode {}", &[&(mode_index + 1)]),
-                            button,
-                            detecting_purpose == Some(purpose),
-                        ) {
-                            detection_requested = Some(purpose);
-                        }
-                    }
-                    let shift_purpose = DetectionPurpose::ShiftButton;
-                    let shift_button = profile.layer_setup.shift_button;
-                    if show_layer_button_row(ui, "Shift", shift_button, detecting_purpose == Some(shift_purpose)) {
-                        detection_requested = Some(shift_purpose);
-                    }
-                });
-        });
-        if let Some(purpose) = detection_requested {
-            self.start_control_detection(purpose);
-        }
-    }
-}
-
 /// One row of the layer setup. Returns true when the user asks to detect the button.
 fn show_layer_button_row(ui: &mut Ui, label: &str, button: Option<ButtonReference>, is_detecting: bool) -> bool {
     caption(ui, label);
-    let button_text = button.map_or_else(|| "Not set".to_owned(), |button| button.describe());
+    let button_text = button.map_or_else(|| tr("Not set").to_owned(), |button| button.describe());
     monospace_text(ui, button_text);
     let detect_clicked = if is_detecting {
         ui.label(RichText::new(tr("Press it now…")).color(LIVE_CYAN));

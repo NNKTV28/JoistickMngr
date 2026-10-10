@@ -20,6 +20,7 @@ use crate::single_instance::SingleInstanceGuard;
 use crate::system_actions::bring_window_to_front;
 use crate::theme::{BACKGROUND, BORDER, SIDEBAR_BACKGROUND, apply_cockpit_theme};
 use crate::tray::{TrayRequest, create_tray_icon};
+use crate::ui::drift_calibration::DriftMeasurement;
 use crate::ui::lighting_page::LightingEditor;
 use crate::ui::mapping_page::MappingEditor;
 use crate::ui::profiles_page::ProfileEditor;
@@ -81,6 +82,7 @@ pub struct JoystickManagerApp {
     pub(crate) device_page_tab: DevicePageTab,
     pub(crate) lighting_editor: LightingEditor,
     pub(crate) mapping_editor: MappingEditor,
+    pub(crate) drift_measurement: Option<DriftMeasurement>,
     pub(crate) profile_editor: ProfileEditor,
     pub(crate) autostart_registered: bool,
     product_images: ProductImages,
@@ -116,6 +118,7 @@ impl JoystickManagerApp {
         Self {
             lighting_editor: LightingEditor::from_profile(&effective_profile),
             mapping_editor: MappingEditor::default(),
+            drift_measurement: None,
             profile_editor,
             app_state,
             services,

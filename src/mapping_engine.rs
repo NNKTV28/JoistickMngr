@@ -14,6 +14,7 @@ use crate::bindings::{
     AxisDirection, ControllerAxis, InputBinding, InputSource, MouseButtonKind, OutputAction, ScreenAxis,
     VirtualControllerKind, WheelDirection,
 };
+use crate::calibration::CalibrationStore;
 use crate::input_injection::InputBatch;
 use crate::input_reader::{ControllerSnapshot, ControllerUpdate, InputReaderService};
 use crate::known_devices::DeviceKind;
@@ -73,6 +74,7 @@ struct MappingConfiguration {
     virtual_controller: VirtualControllerKind,
     layer_setup: LayerSetup,
     axis_tunings: Vec<AxisTuning>,
+    calibration: CalibrationStore,
 }
 
 /// Everything the bindings ask for right now.
@@ -162,6 +164,7 @@ impl MappingWorker {
             virtual_controller: profile.virtual_controller,
             layer_setup: profile.layer_setup,
             axis_tunings: profile.axis_tunings,
+            calibration: state.calibration.clone(),
         };
         self.last_configuration_refresh = Instant::now();
     }
@@ -318,13 +321,13 @@ fn collect_desired_outputs(
         .bindings
         .iter()
         .enumerate()
-        .filter(|(_, binding)| binding.layer.matches(active_layer));
+        .filter(|(_, binding)| binding.enabled && binding.layer.matches(active_layer));
     for (binding_index, binding) in bindings_in_layer {
         let Some(snapshot) = snapshots.get(&binding.source.device()) else {
             continue;
         };
         if binding.source.is_analog() {
-            if let Some(position) = tuned_axis_position(binding.source, snapshot, &configuration.axis_tunings) {
+            if let Some(position) = tuned_axis_position(binding.source, snapshot, configuration) {
                 add_analog_output(&mut desired, binding.action, position, pulse_phase);
             }
         } else if binding.source.is_active(snapshot) {
@@ -393,17 +396,21 @@ struct TunedAxisPosition {
 fn tuned_axis_position(
     source: InputSource,
     snapshot: &ControllerSnapshot,
-    axis_tunings: &[AxisTuning],
+    configuration: &MappingConfiguration,
 ) -> Option<TunedAxisPosition> {
     let InputSource::Axis { device, axis_index } = source else {
         return None;
     };
     let raw_value = snapshot.axis_value(axis_index)?;
+    let drift_corrected_value = configuration.calibration.correct(device, axis_index, raw_value);
     let rests_at_center = device.definition().axis_rests_at_center(axis_index);
-    let tuning = axis_tunings
+    let tuning = configuration
+        .axis_tunings
         .iter()
         .find(|tuning| tuning.device_kind == device && tuning.axis_index == axis_index);
-    let value = tuning.map_or(raw_value, |tuning| tuning.apply_to_reading(raw_value, rests_at_center));
+    let value = tuning.map_or(drift_corrected_value, |tuning| {
+        tuning.apply_to_reading(drift_corrected_value, rests_at_center)
+    });
     Some(TunedAxisPosition { value, rests_at_center })
 }
 

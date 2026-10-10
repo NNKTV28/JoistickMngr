@@ -3,6 +3,7 @@
 use eframe::egui::{self, RichText, Ui};
 
 use crate::app::JoystickManagerApp;
+use crate::calibration::CalibrationStore;
 use crate::input_reader::{AxisStatistics, ControllerSnapshot, HatDirection};
 use crate::known_devices::{DeviceKind, KnownDevice};
 use crate::localization::{tr, tr_format};
@@ -44,6 +45,8 @@ impl JoystickManagerApp {
             return;
         }
 
+        self.show_drift_card(ui);
+        ui.add_space(18.0);
         show_device_panels(ui, &snapshots);
         ui.add_space(18.0);
         let active_profile = self.app_state.lock().unwrap().effective_profile();
@@ -51,7 +54,8 @@ impl JoystickManagerApp {
             .iter()
             .map(|(device_kind, _)| self.services.input_reader.axis_statistics(*device_kind))
             .collect();
-        show_axis_health_card(ui, &snapshots, &statistics_per_device, &active_profile);
+        let calibration = self.app_state.lock().unwrap().calibration.clone();
+        show_axis_health_card(ui, &snapshots, &statistics_per_device, &active_profile, &calibration);
         ui.add_space(18.0);
         self.show_button_press_log(ui);
     }
@@ -219,6 +223,7 @@ fn show_axis_health_card(
     snapshots: &[(DeviceKind, ControllerSnapshot)],
     statistics_per_device: &[Vec<AxisStatistics>],
     active_profile: &Profile,
+    calibration: &CalibrationStore,
 ) {
     card(ui, |ui| {
         ui.horizontal(|ui| {
@@ -233,12 +238,19 @@ fn show_axis_health_card(
                 .num_columns(6)
                 .spacing([28.0, 8.0])
                 .show(ui, |ui| {
-                    for heading in ["Axis", "Now", "Tuned", "Jitter", "Range seen", "Verdict"] {
+                    for heading in ["Axis", "Now", "Output", "Jitter", "Range seen", "Verdict"] {
                         caption(ui, heading);
                     }
                     ui.end_row();
                     for ((device_kind, snapshot), statistics) in snapshots.iter().zip(statistics_per_device) {
-                        show_axis_health_rows(ui, device_kind.definition(), snapshot, statistics, active_profile);
+                        show_axis_health_rows(
+                            ui,
+                            device_kind.definition(),
+                            snapshot,
+                            statistics,
+                            active_profile,
+                            calibration,
+                        );
                     }
                 });
         });
@@ -251,13 +263,15 @@ fn show_axis_health_rows(
     snapshot: &ControllerSnapshot,
     statistics: &[AxisStatistics],
     active_profile: &Profile,
+    calibration: &CalibrationStore,
 ) {
     for (axis_index, (value, statistics)) in snapshot.axis_values.iter().zip(statistics).enumerate() {
         let rests_at_center = definition.axis_rests_at_center(axis_index);
+        let drift_corrected_value = calibration.correct(definition.kind, axis_index, *value);
         let tuned_value = active_profile
             .tuning_for_axis(definition.kind, axis_index)
-            .map(|tuning| tuning.apply_to_reading(*value, rests_at_center))
-            .unwrap_or(*value);
+            .map(|tuning| tuning.apply_to_reading(drift_corrected_value, rests_at_center))
+            .unwrap_or(drift_corrected_value);
         let noise_percent = statistics.noise_percent();
         let range_text = if statistics.has_recorded_range() {
             format!(
