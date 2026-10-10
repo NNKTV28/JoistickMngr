@@ -612,10 +612,6 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
     ("Live", "En vivo"),
     ("Show raw readings", "Mostrar lecturas sin corregir"),
     ("Mode switch and layers", "Selector de modo y capas"),
-    (
-        "Detect the button each position of the throttle's mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
-        "Detecta el botón que mantiene pulsado cada posición del selector de modo del acelerador. Cada posición puede cambiar a su propio perfil, y las asignaciones pueden limitarse a un modo. El botón de mayúsculas da a los controles de este perfil una segunda función mientras se mantiene pulsado.",
-    ),
     ("Keep current profile", "Mantener el perfil actual"),
     ("This profile only", "Solo este perfil"),
     ("Mode profile", "Perfil del modo"),
@@ -645,6 +641,20 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
         "Two quick presses send a short press.",
         "Dos pulsaciones rápidas envían una pulsación corta.",
     ),
+    (
+        "The X56 throttle's mode switch is read automatically. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
+        "El selector de modo del acelerador X56 se lee automáticamente. Cada posición puede cambiar a su propio perfil, y las asignaciones pueden limitarse a un modo. El botón de mayúsculas da a los controles de este perfil una segunda función mientras se mantiene pulsado.",
+    ),
+    (
+        "Detect the button each position of the mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
+        "Detecta el botón que mantiene pulsado cada posición del selector de modo. Cada posición puede cambiar a su propio perfil, y las asignaciones pueden limitarse a un modo. El botón de mayúsculas da a los controles de este perfil una segunda función mientras se mantiene pulsado.",
+    ),
+    (
+        "Move the mode switch once so the app knows which position it is in.",
+        "Mueve el selector de modo una vez para que la aplicación sepa en qué posición está.",
+    ),
+    ("X56 Throttle switch", "Selector del X56 Throttle"),
+    ("Selected", "Seleccionado"),
     // Tray
     ("Open Joystick Manager", "Abrir Joystick Manager"),
     ("Quit", "Salir"),

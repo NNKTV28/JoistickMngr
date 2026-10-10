@@ -36,8 +36,21 @@ impl ButtonReference {
 /// They are part of the hardware, so every profile shares them.
 pub type ModeSwitchButtons = [Option<ButtonReference>; MODE_COUNT];
 
-/// 1..=3 for the position the mode switch is in, or `None` when it is not set up.
+/// 1..=3 for the position the mode switch is in, or `None` when it is not known.
+/// A switch the device reports by itself (the X56 throttle) wins over buttons chosen for it.
 pub fn selected_mode(
+    mode_switch: &ModeSwitchButtons,
+    snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
+) -> Option<u8> {
+    reported_mode(snapshots).or_else(|| mode_from_buttons(mode_switch, snapshots))
+}
+
+/// The mode switch position a device reported by itself, if any device did.
+pub fn reported_mode(snapshots: &HashMap<DeviceKind, ControllerSnapshot>) -> Option<u8> {
+    snapshots.values().find_map(|snapshot| snapshot.reported_mode)
+}
+
+fn mode_from_buttons(
     mode_switch: &ModeSwitchButtons,
     snapshots: &HashMap<DeviceKind, ControllerSnapshot>,
 ) -> Option<u8> {

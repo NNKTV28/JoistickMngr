@@ -84,16 +84,24 @@ impl HidController {
         })
     }
 
+    /// Blocks until the device sends its next input report and returns it unparsed.
+    pub fn read_report(&self) -> anyhow::Result<Vec<u8>> {
+        let mut report = vec![0u8; self.input_report_length];
+        let mut bytes_read = 0u32;
+        // SAFETY: the buffer is as long as the device's input reports.
+        unsafe { ReadFile(self.device_handle, Some(&mut report), Some(&mut bytes_read), None)? };
+        report.truncate(bytes_read as usize);
+        Ok(report)
+    }
+
     pub fn axis_layouts(&self) -> &[AxisLayout] {
         &self.axes
     }
 
     /// Blocks until the device sends its next input report.
     pub fn read_state(&self) -> anyhow::Result<RawControllerState> {
-        let mut report = vec![0u8; self.input_report_length];
-        let mut bytes_read = 0u32;
-        // SAFETY: the buffer is as long as the device's input reports.
-        unsafe { ReadFile(self.device_handle, Some(&mut report), Some(&mut bytes_read), None)? };
+        let mut report = self.read_report()?;
+        report.resize(self.input_report_length, 0);
         Ok(RawControllerState {
             axis_values: self.axes.iter().map(|axis| self.read_axis(axis, &report)).collect(),
             button_states: self.read_buttons(&mut report),

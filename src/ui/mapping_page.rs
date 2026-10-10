@@ -813,9 +813,9 @@ impl JoystickManagerApp {
                 names,
             )
         };
-        let active_layer = profile
-            .layer_setup
-            .active_layer(&mode_switch, &self.current_snapshots());
+        let snapshots = self.current_snapshots();
+        let active_layer = profile.layer_setup.active_layer(&mode_switch, &snapshots);
+        let throttle_reports_mode = snapshots.contains_key(&DeviceKind::Throttle);
         let detecting_purpose = self
             .mapping_editor
             .detection
@@ -830,10 +830,20 @@ impl JoystickManagerApp {
                     status_pill(ui, &tr_format("Now: {}", &[&active_layer.describe()]), Tone::Info);
                 });
             });
-            muted_text(
-                ui,
-                "Detect the button each position of the throttle's mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held.",
-            );
+            let explanation = if throttle_reports_mode {
+                "The X56 throttle's mode switch is read automatically. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held."
+            } else {
+                "Detect the button each position of the mode switch holds down. Each position can switch to its own profile, and bindings can be limited to one mode. The shift button gives this profile's controls a second job while it is held."
+            };
+            muted_text(ui, explanation);
+            if throttle_reports_mode && active_layer.mode.is_none() {
+                ui.label(
+                    RichText::new(tr(
+                        "Move the mode switch once so the app knows which position it is in.",
+                    ))
+                    .color(WARNING_TEXT),
+                );
+            }
             ui.add_space(6.0);
             egui::Grid::new("layer-setup")
                 .num_columns(4)
@@ -842,7 +852,10 @@ impl JoystickManagerApp {
                     for mode_index in 0..MODE_COUNT {
                         let purpose = DetectionPurpose::ModeButton(mode_index);
                         let label = tr_format("Mode {}", &[&(mode_index + 1)]);
-                        if show_layer_button_row(
+                        if throttle_reports_mode {
+                            let is_current_mode = active_layer.mode == Some(mode_index as u8 + 1);
+                            show_reported_mode_row(ui, &label, is_current_mode);
+                        } else if show_layer_button_row(
                             ui,
                             &label,
                             mode_switch[mode_index],
@@ -1165,6 +1178,18 @@ fn main_hat_push(direction: HatDirection) -> Option<HatPush> {
         HatDirection::Left => Some(HatPush::Left),
         _ => None,
     }
+}
+
+/// The first three cells of a mode row when the throttle reports its switch by itself.
+fn show_reported_mode_row(ui: &mut Ui, label: &str, is_current_mode: bool) {
+    caption(ui, label);
+    monospace_text(ui, tr("X56 Throttle switch"));
+    ui.horizontal(|ui| {
+        activity_light(ui, is_current_mode);
+        if is_current_mode {
+            ui.label(RichText::new(tr("Selected")).color(LIVE_CYAN));
+        }
+    });
 }
 
 /// The first three cells of a layer setup row. Returns true when the user asks to detect the button.

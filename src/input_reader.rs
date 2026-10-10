@@ -15,6 +15,10 @@ use crate::known_devices::{DeviceKind, KnownDevice, find_known_device};
 use crate::thread_priority::raise_current_thread_priority;
 
 const DEVICE_DISCOVERY_INTERVAL: Duration = Duration::from_secs(2);
+/// The X56 throttle reports its M1 / M2 / M3 switch on a separate vendor-defined interface.
+const VENDOR_DEFINED_PAGE: u16 = 0xFF00;
+/// Start of the throttle's mode report; the byte after it is the mode, 1..=3.
+const MODE_REPORT_PREFIX: [u8; 4] = [0xFF, 0x09, 0x01, 0x01];
 const NOISE_WINDOW_SAMPLE_COUNT: usize = 200;
 const BUTTON_EVENT_LOG_LIMIT: usize = 40;
 
@@ -119,6 +123,9 @@ pub struct ControllerSnapshot {
     pub axis_values: Vec<f64>,
     pub button_states: Vec<bool>,
     pub hat_directions: Vec<HatDirection>,
+    /// Position of a mode switch the device reports by itself (the X56 throttle), 1..=3.
+    /// `None` until the switch has been moved, because the device only reports changes.
+    pub reported_mode: Option<u8>,
 }
 
 /// Sent to subscribers the moment a device reports new input.
@@ -169,12 +176,14 @@ struct SharedInputState {
     axis_statistics: HashMap<DeviceKind, Vec<AxisStatistics>>,
     button_press_log: VecDeque<ButtonPressEvent>,
     update_subscribers: Vec<Sender<ControllerUpdate>>,
+    reported_modes: HashMap<DeviceKind, u8>,
 }
 
 #[derive(Clone)]
 pub struct InputReaderService {
     shared_state: Arc<Mutex<SharedInputState>>,
     devices_being_read: Arc<Mutex<HashSet<DeviceKind>>>,
+    mode_switches_being_read: Arc<Mutex<HashSet<DeviceKind>>>,
     reset_requested: Arc<AtomicBool>,
 }
 
@@ -183,6 +192,7 @@ impl InputReaderService {
         let service = Self {
             shared_state: Arc::new(Mutex::new(SharedInputState::default())),
             devices_being_read: Arc::new(Mutex::new(HashSet::new())),
+            mode_switches_being_read: Arc::new(Mutex::new(HashSet::new())),
             reset_requested: Arc::new(AtomicBool::new(false)),
         };
         let thread_service = service.clone();
@@ -240,6 +250,11 @@ impl InputReaderService {
                     self.spawn_reader(definition, device_path);
                 }
             }
+            for (definition, device_path) in find_mode_switch_interfaces(&hid_api) {
+                if self.mode_switches_being_read.lock().unwrap().insert(definition.kind) {
+                    self.spawn_mode_switch_reader(definition, device_path);
+                }
+            }
             std::thread::sleep(DEVICE_DISCOVERY_INTERVAL);
         }
     }
@@ -255,6 +270,45 @@ impl InputReaderService {
         if spawn_result.is_err() {
             self.devices_being_read.lock().unwrap().remove(&definition.kind);
         }
+    }
+
+    fn spawn_mode_switch_reader(&self, definition: &'static KnownDevice, device_path: CString) {
+        let service = self.clone();
+        let spawn_result = std::thread::Builder::new()
+            .name(format!("mode-switch-{}", definition.short_name))
+            .spawn(move || {
+                service.read_mode_switch_until_disconnected(definition.kind, &device_path);
+                service.forget_mode_switch(definition.kind);
+            });
+        if spawn_result.is_err() {
+            self.mode_switches_being_read.lock().unwrap().remove(&definition.kind);
+        }
+    }
+
+    fn read_mode_switch_until_disconnected(&self, device_kind: DeviceKind, device_path: &CString) {
+        let Ok(interface) = HidController::open(device_path) else {
+            return;
+        };
+        while let Ok(report) = interface.read_report() {
+            if let Some(mode) = parse_mode_report(&report) {
+                self.store_reported_mode(device_kind, mode);
+            }
+        }
+    }
+
+    /// Records the new mode and tells subscribers straight away, so a mode profile loads instantly.
+    fn store_reported_mode(&self, device_kind: DeviceKind, mode: u8) {
+        let mut shared_state = self.shared_state.lock().unwrap();
+        shared_state.reported_modes.insert(device_kind, mode);
+        let mut snapshot = shared_state.snapshots.get(&device_kind).cloned().unwrap_or_default();
+        snapshot.reported_mode = Some(mode);
+        notify_subscribers(&mut shared_state.update_subscribers, device_kind, &snapshot);
+        shared_state.snapshots.insert(device_kind, snapshot);
+    }
+
+    fn forget_mode_switch(&self, device_kind: DeviceKind) {
+        self.shared_state.lock().unwrap().reported_modes.remove(&device_kind);
+        self.mode_switches_being_read.lock().unwrap().remove(&device_kind);
     }
 
     fn read_until_disconnected(&self, definition: &'static KnownDevice, device_path: &CString) {
@@ -278,8 +332,9 @@ impl InputReaderService {
 
     /// Hands the new state to subscribers first (they drive key mapping), then updates the bookkeeping.
     fn store_reading(&self, device_kind: DeviceKind, raw_state: RawControllerState) {
-        let snapshot = snapshot_from_raw_state(raw_state);
+        let mut snapshot = snapshot_from_raw_state(raw_state);
         let mut shared_state = self.shared_state.lock().unwrap();
+        snapshot.reported_mode = shared_state.reported_modes.get(&device_kind).copied();
         notify_subscribers(&mut shared_state.update_subscribers, device_kind, &snapshot);
 
         let previous_buttons = shared_state
@@ -315,6 +370,24 @@ fn find_controller_interfaces(hid_api: &hidapi::HidApi) -> Vec<(&'static KnownDe
             Some((definition, device.path().to_owned()))
         })
         .collect()
+}
+
+/// The vendor-defined interface of each known device that reports a mode switch on it.
+fn find_mode_switch_interfaces(hid_api: &hidapi::HidApi) -> Vec<(&'static KnownDevice, CString)> {
+    hid_api
+        .device_list()
+        .filter(|device| device.usage_page() == VENDOR_DEFINED_PAGE)
+        .filter_map(|device| {
+            let definition = find_known_device(device.vendor_id(), device.product_id())?;
+            (definition.kind == DeviceKind::Throttle).then(|| (definition, device.path().to_owned()))
+        })
+        .collect()
+}
+
+/// The mode in a report such as `FF 09 01 01 02 …` (mode 2), or `None` for any other report.
+fn parse_mode_report(report: &[u8]) -> Option<u8> {
+    let mode = *report.strip_prefix(&MODE_REPORT_PREFIX)?.first()?;
+    (1..=3).contains(&mode).then_some(mode)
 }
 
 /// Positions of the device's axes in the order the device definition lists them, so axis numbers
@@ -364,6 +437,7 @@ fn snapshot_from_raw_state(raw_state: RawControllerState) -> ControllerSnapshot 
             .into_iter()
             .map(HatDirection::from_hat_position)
             .collect(),
+        reported_mode: None,
     }
 }
 
@@ -398,4 +472,21 @@ fn log_button_press(log: &mut VecDeque<ButtonPressEvent>, device_kind: DeviceKin
         button_number,
         pressed_at: Instant::now(),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mode_report_gives_the_switch_position() {
+        assert_eq!(parse_mode_report(&[0xFF, 0x09, 0x01, 0x01, 0x02, 0x00]), Some(2));
+    }
+
+    #[test]
+    fn other_vendor_reports_are_ignored() {
+        assert_eq!(parse_mode_report(&[0xFF, 0x0A, 0x01, 0x01, 0x02]), None);
+        assert_eq!(parse_mode_report(&[0xFF, 0x09, 0x01, 0x01, 0x07]), None);
+        assert_eq!(parse_mode_report(&[0xFF, 0x09]), None);
+    }
 }
