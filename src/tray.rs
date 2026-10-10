@@ -133,7 +133,8 @@ fn create_hidden_window() -> anyhow::Result<HWND> {
 /// Builds a Windows icon from the app logo. Windows wants blue, green, red, alpha byte order.
 fn create_logo_icon() -> anyhow::Result<HICON> {
     let mut color_pixels = render_logo_rgba(TRAY_ICON_SIZE);
-    for pixel in color_pixels.chunks_exact_mut(4) {
+    let (pixels, _) = color_pixels.as_chunks_mut::<4>();
+    for pixel in pixels {
         pixel.swap(0, 2);
     }
     let transparency_mask = vec![0_u8; (TRAY_ICON_SIZE * TRAY_ICON_SIZE / 8) as usize];
