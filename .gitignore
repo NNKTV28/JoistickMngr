@@ -2,3 +2,4 @@
 /dist
 *.pfx
 *.cer
+.playwright-mcp/
