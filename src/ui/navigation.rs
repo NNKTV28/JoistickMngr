@@ -47,6 +47,7 @@ impl PerifeMngrApp {
 
         ui.add_space(14.0);
         caption(ui, "Tools");
+        self.show_navigation_link(ui, "Audio", Page::Audio);
         self.show_navigation_link(ui, "Lighting", Page::Lighting);
         self.show_navigation_link(ui, "Input tester", Page::InputTester);
         self.show_navigation_link(ui, "Key mapping", Page::KeyMapping);

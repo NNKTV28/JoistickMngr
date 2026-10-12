@@ -1915,6 +1915,7 @@ dependencies = [
  "ureq",
  "vigem-client",
  "windows",
+ "windows-core",
  "winreg",
  "winresource",
  "wmi",

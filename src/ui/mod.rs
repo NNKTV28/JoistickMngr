@@ -1,3 +1,4 @@
+pub mod audio_page;
 pub mod device_page;
 pub mod drift_calibration;
 pub mod input_page;

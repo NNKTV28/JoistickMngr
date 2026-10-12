@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, CentralPanel, Frame, Margin, Panel, ScrollArea, TextureHandle, ViewportCommand};
 
 use crate::app_state::SharedAppState;
+use crate::audio_devices::AudioService;
 use crate::autostart::is_autostart_registered;
 use crate::device_scanner::DeviceScannerService;
 use crate::input_reader::InputReaderService;
@@ -38,6 +39,7 @@ type TrayRequestQueue = Arc<Mutex<Vec<TrayRequest>>>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Overview,
+    Audio,
     Device(DeviceKind),
     Lighting,
     InputTester,
@@ -50,7 +52,7 @@ impl Page {
     fn shows_live_input(self) -> bool {
         matches!(
             self,
-            Page::Overview | Page::InputTester | Page::KeyMapping | Page::Lighting
+            Page::Overview | Page::Audio | Page::InputTester | Page::KeyMapping | Page::Lighting
         )
     }
 }
@@ -69,6 +71,7 @@ pub struct StatusBanner {
 }
 
 pub struct BackgroundServices {
+    pub audio: AudioService,
     pub mapping_engine: MappingEngine,
     pub device_scanner: DeviceScannerService,
     pub input_reader: InputReaderService,
@@ -239,6 +242,7 @@ impl PerifeMngrApp {
     fn show_current_page(&mut self, ui: &mut egui::Ui) {
         match self.current_page {
             Page::Overview => self.show_overview_page(ui),
+            Page::Audio => self.show_audio_page(ui),
             Page::Device(device_kind) => self.show_device_page(ui, device_kind),
             Page::Lighting => self.show_lighting_page(ui),
             Page::InputTester => self.show_input_page(ui),

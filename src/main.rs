@@ -3,6 +3,7 @@
 mod app;
 mod app_icon;
 mod app_state;
+mod audio_devices;
 mod automation;
 mod autostart;
 mod bindings;
@@ -45,6 +46,7 @@ use eframe::egui;
 
 use app::{BackgroundServices, PerifeMngrApp, WINDOW_TITLE};
 use app_state::{AppState, SharedAppState};
+use audio_devices::AudioService;
 use autostart::MINIMIZED_ARGUMENT;
 use device_scanner::DeviceScannerService;
 use input_reader::InputReaderService;
@@ -104,6 +106,7 @@ fn start_background_services(app_state: &SharedAppState) -> BackgroundServices {
     let input_reader = InputReaderService::start();
     let lighting = LightingService::start();
     BackgroundServices {
+        audio: AudioService::start(),
         mapping_engine: MappingEngine::start(Arc::clone(app_state), &input_reader, lighting.clone()),
         device_scanner: DeviceScannerService::start(),
         input_reader,
