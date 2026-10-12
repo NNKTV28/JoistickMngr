@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, RichText, Ui};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::calibration::CalibrationStore;
 use crate::input_reader::{AxisStatistics, ControllerSnapshot, HatDirection};
 use crate::known_devices::{DeviceKind, KnownDevice};
@@ -16,7 +16,7 @@ const DEVICE_PANEL_MINIMUM_WIDTH: f32 = 460.0;
 const NOISY_AXIS_THRESHOLD_PERCENT: f64 = 1.0;
 const VERTICAL_BAR_WIDTH: f32 = 34.0;
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_input_page(&mut self, ui: &mut Ui) {
         let mut reset_clicked = false;
         let mut control_panel_clicked = false;

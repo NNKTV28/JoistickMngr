@@ -15,11 +15,11 @@ use sha2::{Digest, Sha256};
 use crate::version_numbers::compare_versions;
 
 const LATEST_RELEASE_URL: &str = "https://api.github.com/repos/NNKTV28/JoistickMngr/releases/latest";
-const INSTALLER_NAME_PREFIX: &str = "JoystickManager-Setup-";
+const INSTALLER_NAME_PREFIX: &str = "PerifeMngr-Setup-";
 const SHA256_DIGEST_PREFIX: &str = "sha256:";
 const AUTOMATIC_CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const UPDATES_FOLDER_NAME: &str = "updates";
-const USER_AGENT: &str = "JoystickManager-updater (+https://nikicoding.com)";
+const USER_AGENT: &str = "PerifeMngr-updater (+https://nikicoding.com)";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AvailableUpdate {

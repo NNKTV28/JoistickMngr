@@ -27,7 +27,7 @@ use crate::ui::widgets::Tone;
 use crate::updater::UpdateService;
 use crate::windows_update::WindowsUpdateService;
 
-pub const WINDOW_TITLE: &str = "Joystick Manager";
+pub const WINDOW_TITLE: &str = "PerifeMngr";
 const LIVE_PAGE_REFRESH_INTERVAL: Duration = Duration::from_millis(16);
 const STATIC_PAGE_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 const STATUS_BANNER_LIFETIME: Duration = Duration::from_secs(6);
@@ -77,7 +77,7 @@ pub struct BackgroundServices {
     pub updater: UpdateService,
 }
 
-pub struct JoystickManagerApp {
+pub struct PerifeMngrApp {
     pub(crate) app_state: SharedAppState,
     pub(crate) services: BackgroundServices,
     pub(crate) current_page: Page,
@@ -96,7 +96,7 @@ pub struct JoystickManagerApp {
     _single_instance: SingleInstanceGuard,
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub fn new(
         creation_context: &eframe::CreationContext<'_>,
         app_state: SharedAppState,
@@ -277,7 +277,7 @@ fn respond_to_tray_request(request: TrayRequest, tray_requests: &TrayRequestQueu
     }
 }
 
-impl eframe::App for JoystickManagerApp {
+impl eframe::App for PerifeMngrApp {
     fn logic(&mut self, context: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_tray_requests(context);
         self.handle_close_request(context);

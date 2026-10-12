@@ -24,7 +24,7 @@ use crate::localization::tr;
 
 const TRAY_ICON_SIZE: u32 = 32;
 const TRAY_ICON_ID: u32 = 1;
-const TOOLTIP: &str = "Joystick Manager";
+const TOOLTIP: &str = "PerifeMngr";
 /// Message the shell sends to the hidden window when the icon is clicked.
 const TRAY_CALLBACK_MESSAGE: u32 = WM_APP + 1;
 const OPEN_MENU_COMMAND: u32 = 1;
@@ -101,7 +101,7 @@ impl Drop for TrayIcon {
 }
 
 fn create_hidden_window() -> anyhow::Result<HWND> {
-    let class_name = w!("NikiCoding.JoystickManager.Tray");
+    let class_name = w!("NikiCoding.PerifeMngr.Tray");
     // SAFETY: the class and window use a static name and a procedure that lives for the whole program.
     unsafe {
         let instance = GetModuleHandleW(None)?;
@@ -115,7 +115,7 @@ fn create_hidden_window() -> anyhow::Result<HWND> {
         let window = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             class_name,
-            w!("Joystick Manager tray"),
+            w!("PerifeMngr tray"),
             WS_OVERLAPPED,
             0,
             0,
@@ -179,7 +179,7 @@ fn handle_icon_click(window: HWND, mouse_message: u32) {
 
 /// Shows "Open" and "Quit" at the mouse pointer and returns what the user picked.
 fn show_tray_menu(window: HWND) -> Option<TrayRequest> {
-    let open_text = HSTRING::from(tr("Open Joystick Manager"));
+    let open_text = HSTRING::from(tr("Open PerifeMngr"));
     let quit_text = HSTRING::from(tr("Quit"));
     // SAFETY: the menu is created, shown and destroyed here; the strings outlive the calls.
     unsafe {

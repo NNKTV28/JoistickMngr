@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Align2, RichText, ScrollArea, Sense, Stroke, Ui, vec2};
 
-use crate::app::{DevicePageTab, JoystickManagerApp};
+use crate::app::{DevicePageTab, PerifeMngrApp};
 use crate::device_scanner::ConnectedDevice;
 use crate::driver_repair::{find_installed_third_party_package, remove_driver_package};
 use crate::driver_status::{evaluate_driver_health, installed_package_version, vendor_release_for};
@@ -17,7 +17,7 @@ use crate::windows_update::WindowsUpdateState;
 
 const INFORMATION_CARD_MINIMUM_WIDTH: f32 = 420.0;
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_device_page(&mut self, ui: &mut Ui, device_kind: DeviceKind) {
         let definition = device_kind.definition();
         let connected_device = self

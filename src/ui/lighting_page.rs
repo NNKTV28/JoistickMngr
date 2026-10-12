@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, ComboBox, RichText, Slider, TextureHandle, Ui};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::driver_status::vendor_release_for;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingAvailability;
@@ -77,7 +77,7 @@ impl LightingEditor {
     }
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_lighting_page(&mut self, ui: &mut Ui) {
         let mut save_clicked = false;
         let mut revert_clicked = false;

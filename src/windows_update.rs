@@ -15,7 +15,7 @@ use windows::core::{BSTR, Interface};
 use crate::known_devices::KNOWN_DEVICES;
 
 const DRIVER_SEARCH_CRITERIA: &str = "IsInstalled=0 and Type='Driver'";
-const CLIENT_APPLICATION_ID: &str = "Joystick Manager";
+const CLIENT_APPLICATION_ID: &str = "PerifeMngr";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct DriverUpdateOffer {

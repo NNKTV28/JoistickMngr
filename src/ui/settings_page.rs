@@ -2,7 +2,7 @@
 
 use eframe::egui::{RichText, Ui};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::autostart::{is_autostart_registered, register_autostart, unregister_autostart};
 use crate::lighting::LightingAvailability;
 use crate::localization::{Language, set_current_language, tr, tr_format};
@@ -14,7 +14,7 @@ use crate::updater::{UpdateService, UpdateState};
 
 const PUBLISHER_WEBSITE: &str = "https://nikicoding.com";
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_settings_page(&mut self, ui: &mut Ui) {
         page_header(ui, "Preferences", "Settings", None, |_| {});
         self.show_startup_card(ui);
@@ -65,8 +65,8 @@ impl JoystickManagerApp {
         };
         self.autostart_registered = is_autostart_registered();
         match result {
-            Ok(()) if enable => self.show_status("Joystick Manager will start when you sign in.", Tone::Success),
-            Ok(()) => self.show_status("Joystick Manager will no longer start with Windows.", Tone::Info),
+            Ok(()) if enable => self.show_status("PerifeMngr will start when you sign in.", Tone::Success),
+            Ok(()) => self.show_status("PerifeMngr will no longer start with Windows.", Tone::Info),
             Err(error) => self.show_status(tr_format("Could not change start-up: {}", &[&error]), Tone::Danger),
         }
     }
@@ -131,7 +131,7 @@ fn yes_or_no(value: bool) -> String {
     tr(if value { "Yes" } else { "No" }).to_owned()
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     fn show_updates_card(&mut self, ui: &mut Ui) {
         let update_state = self.services.updater.state();
         let mut check_clicked = false;
@@ -188,7 +188,7 @@ fn describe_update_state(update_state: &UpdateState) -> (String, Tone) {
     }
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     /// The language names stay in their own language so they can be found whatever is selected.
     fn show_language_card(&mut self, ui: &mut Ui) {
         let current = self.app_state.lock().unwrap().settings.language;

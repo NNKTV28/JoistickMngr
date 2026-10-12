@@ -89,7 +89,7 @@ fn load_image(device_kind: DeviceKind) -> anyhow::Result<ColorImage> {
 
 fn download_image(url: &str, destination: &Path) -> anyhow::Result<()> {
     let image_bytes = ureq::get(url)
-        .header("User-Agent", "JoystickManager (+https://nikicoding.com)")
+        .header("User-Agent", "PerifeMngr (+https://nikicoding.com)")
         .call()?
         .body_mut()
         .read_to_vec()?;

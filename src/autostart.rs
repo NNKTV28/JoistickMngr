@@ -5,7 +5,9 @@
 
 use crate::system_actions::run_hidden_command;
 
-const TASK_NAME: &str = r"NikiCoding\Joystick Manager";
+const TASK_NAME: &str = r"NikiCoding\PerifeMngr";
+/// Task registered before the app was renamed; it points at the old program file.
+const LEGACY_TASK_NAME: &str = r"NikiCoding\Joystick Manager";
 pub const MINIMIZED_ARGUMENT: &str = "--minimized";
 
 pub fn is_autostart_registered() -> bool {
@@ -15,9 +17,10 @@ pub fn is_autostart_registered() -> bool {
 }
 
 pub fn register_autostart() -> anyhow::Result<()> {
+    remove_legacy_task();
     let executable_path = std::env::current_exe()?;
     let task_definition = build_task_definition(&executable_path.to_string_lossy(), &current_user_account());
-    let definition_path = std::env::temp_dir().join("joystick-manager-autostart.xml");
+    let definition_path = std::env::temp_dir().join("perife-mngr-autostart.xml");
     std::fs::write(&definition_path, encode_as_utf16_with_bom(&task_definition))?;
 
     let definition_path_text = definition_path.to_string_lossy().into_owned();
@@ -36,6 +39,7 @@ pub fn register_autostart() -> anyhow::Result<()> {
 }
 
 pub fn unregister_autostart() -> anyhow::Result<()> {
+    remove_legacy_task();
     if !is_autostart_registered() {
         return Ok(());
     }
@@ -46,6 +50,10 @@ pub fn unregister_autostart() -> anyhow::Result<()> {
         String::from_utf8_lossy(&output.stderr).trim()
     );
     Ok(())
+}
+
+fn remove_legacy_task() {
+    let _ = run_hidden_command("schtasks.exe", &["/Delete", "/TN", LEGACY_TASK_NAME, "/F"]);
 }
 
 fn current_user_account() -> String {
@@ -83,7 +91,7 @@ fn build_task_definition(executable_path: &str, user_account: &str) -> String {
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Author>NikiCoding</Author>
-    <Description>Starts Joystick Manager when you sign in.</Description>
+    <Description>Starts PerifeMngr when you sign in.</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>

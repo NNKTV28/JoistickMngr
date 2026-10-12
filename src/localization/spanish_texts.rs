@@ -584,12 +584,12 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
         "Al iniciar con Windows, quedarse en la bandeja",
     ),
     (
-        "Joystick Manager will start when you sign in.",
-        "Joystick Manager se iniciará al iniciar sesión.",
+        "PerifeMngr will start when you sign in.",
+        "PerifeMngr se iniciará al iniciar sesión.",
     ),
     (
-        "Joystick Manager will no longer start with Windows.",
-        "Joystick Manager ya no se iniciará con Windows.",
+        "PerifeMngr will no longer start with Windows.",
+        "PerifeMngr ya no se iniciará con Windows.",
     ),
     ("Could not change start-up: {}", "No se pudo cambiar el inicio: {}"),
     ("Window", "Ventana"),
@@ -677,6 +677,6 @@ pub const SPANISH_TEXTS: &[(&str, &str)] = &[
     ("X56 Throttle switch", "Selector del X56 Throttle"),
     ("Selected", "Seleccionado"),
     // Tray
-    ("Open Joystick Manager", "Abrir Joystick Manager"),
+    ("Open PerifeMngr", "Abrir PerifeMngr"),
     ("Quit", "Salir"),
 ];

@@ -6,7 +6,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 const PUBLISHER_FOLDER_NAME: &str = "NikiCoding";
-const APPLICATION_FOLDER_NAME: &str = "JoystickManager";
+const APPLICATION_FOLDER_NAME: &str = "PerifeMngr";
+/// Folder used before the app was renamed from Joystick Manager to PerifeMngr.
+const LEGACY_APPLICATION_FOLDER_NAME: &str = "JoystickManager";
 
 pub fn application_data_directory() -> PathBuf {
     let roaming_app_data = std::env::var_os("APPDATA")
@@ -15,6 +17,15 @@ pub fn application_data_directory() -> PathBuf {
     roaming_app_data
         .join(PUBLISHER_FOLDER_NAME)
         .join(APPLICATION_FOLDER_NAME)
+}
+
+/// Moves settings, profiles and calibration saved before the rename into the new folder, once.
+pub fn move_legacy_application_data() {
+    let application_directory = application_data_directory();
+    let legacy_directory = application_directory.with_file_name(LEGACY_APPLICATION_FOLDER_NAME);
+    if !application_directory.exists() && legacy_directory.exists() {
+        let _ = std::fs::rename(&legacy_directory, &application_directory);
+    }
 }
 
 pub fn read_json_file<T: DeserializeOwned>(path: &Path) -> Option<T> {

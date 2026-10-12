@@ -40,7 +40,7 @@ jobs:
 
       - name: Sign application
         shell: pwsh
-        run: ./scripts/sign-file.ps1 -FilePath target/release/JoystickManager.exe
+        run: ./scripts/sign-file.ps1 -FilePath target/release/PerifeMngr.exe
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
@@ -49,10 +49,15 @@ jobs:
         shell: pwsh
         run: ./scripts/build-installer.ps1 -Version ${{ steps.version.outputs.value }}
 
+      # Versions released before the rename look for this name when they update themselves.
+      - name: Add installer copy for versions before the rename
+        shell: pwsh
+        run: Copy-Item "dist/PerifeMngr-Setup-${{ steps.version.outputs.value }}.exe" "dist/JoystickManager-Setup-${{ steps.version.outputs.value }}.exe"
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: JoystickManager-Setup-${{ steps.version.outputs.value }}
+          name: PerifeMngr-Setup-${{ steps.version.outputs.value }}
           path: dist/*.exe
 
       - name: Publish GitHub release

@@ -2,7 +2,7 @@
 
 use eframe::egui::{TextureHandle, Ui};
 
-use crate::app::{JoystickManagerApp, Page};
+use crate::app::{Page, PerifeMngrApp};
 use crate::device_scanner::{ConnectedDevice, ScanState};
 use crate::driver_status::{DriverHealth, evaluate_driver_health};
 use crate::known_devices::{DeviceKind, KnownDevice};
@@ -14,7 +14,7 @@ use crate::ui::widgets::*;
 const DEVICE_CARD_MINIMUM_WIDTH: f32 = 290.0;
 const AXIS_METER_WIDTH: f32 = 230.0;
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_overview_page(&mut self, ui: &mut Ui) {
         let scan_state = self.services.device_scanner.scan_state();
         let connected_devices = self.services.device_scanner.connected_devices();

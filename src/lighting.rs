@@ -230,7 +230,7 @@ impl DirectOutput {
                 _library: library,
                 unit_handles: HashMap::new(),
             };
-            let plugin_name: Vec<u16> = "Joystick Manager\0".encode_utf16().collect();
+            let plugin_name: Vec<u16> = "PerifeMngr\0".encode_utf16().collect();
             let result = initialize(plugin_name.as_ptr());
             anyhow::ensure!(result >= 0, "DirectOutput_Initialize failed with {result:#x}");
             Ok(direct_output)

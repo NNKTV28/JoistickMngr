@@ -1,9 +1,9 @@
 //! Embeds the icon, version details and the Windows manifest (administrator rights, DPI awareness)
-//! into JoystickManager.exe.
+//! into PerifeMngr.exe.
 
 const APPLICATION_MANIFEST: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="NikiCoding.JoystickManager" version="1.0.0.0"/>
+  <assemblyIdentity type="win32" name="NikiCoding.PerifeMngr" version="1.0.0.0"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
@@ -47,7 +47,7 @@ fn is_release_build() -> bool {
 
 fn embed_administrator_manifest() {
     let output_directory = std::env::var("OUT_DIR").expect("cargo sets OUT_DIR");
-    let manifest_path = std::path::Path::new(&output_directory).join("JoystickManager.exe.manifest");
+    let manifest_path = std::path::Path::new(&output_directory).join("PerifeMngr.exe.manifest");
     std::fs::write(&manifest_path, APPLICATION_MANIFEST).expect("manifest is written");
     println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
     println!("cargo:rustc-link-arg-bins=/MANIFESTUAC:NO");
@@ -58,10 +58,10 @@ fn embed_icon_and_version_details() {
     let mut resource = winresource::WindowsResource::new();
     resource
         .set_icon("assets/app.ico")
-        .set("ProductName", "Joystick Manager")
-        .set("FileDescription", "Joystick Manager")
+        .set("ProductName", "PerifeMngr")
+        .set("FileDescription", "PerifeMngr")
         .set("CompanyName", "NikiCoding")
         .set("LegalCopyright", "Copyright © 2026 NikiCoding")
-        .set("OriginalFilename", "JoystickManager.exe");
+        .set("OriginalFilename", "PerifeMngr.exe");
     resource.compile().expect("Windows resources compile");
 }

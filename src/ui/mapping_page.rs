@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Color32, ComboBox, RichText, Slider, Ui};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::bindings::{
     AxisDirection, ControllerAxis, ControllerButton, HatPush, InputBinding, InputSource, MouseButtonKind, OutputAction,
     OutputFamily, ScreenAxis, VirtualControllerKind, WheelDirection,
@@ -389,7 +389,7 @@ enum BindingListAction {
     Remove(usize),
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_mapping_page(&mut self, ui: &mut Ui) {
         let (profile, mapping_enabled) = {
             let state = self.app_state.lock().unwrap();

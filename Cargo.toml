@@ -1,5 +1,5 @@
 [package]
-name = "joystick-manager"
+name = "perife-mngr"
 version = "0.7.0"
 edition = "2024"
 description = "Manage Logitech X56 HOTAS and Saitek rudder pedals on Windows"
@@ -9,7 +9,7 @@ repository = "https://github.com/NNKTV28/JoistickMngr"
 license = "MIT"
 
 [[bin]]
-name = "JoystickManager"
+name = "PerifeMngr"
 path = "src/main.rs"
 
 [dependencies]

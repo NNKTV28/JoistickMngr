@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, CornerRadius, Frame, Margin, RichText, Sense, Slider, Stroke, Ui, vec2};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::app_state::AppState;
 use crate::known_devices::DeviceKind;
 use crate::localization::{tr, tr_format};
@@ -59,7 +59,7 @@ enum ProfileAction {
     Export,
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_profiles_page(&mut self, ui: &mut Ui) {
         let mut requested_action = None;
         page_header(ui, "Saved setups", "Profiles", None, |ui| {
@@ -297,7 +297,7 @@ impl JoystickManagerApp {
 
     fn import_profile(&mut self) -> anyhow::Result<Option<String>> {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Joystick Manager profile", &["json"])
+            .add_filter("PerifeMngr profile", &["json"])
             .pick_file()
         else {
             return Ok(None);
@@ -315,7 +315,7 @@ impl JoystickManagerApp {
     fn export_selected_profile(&mut self) -> anyhow::Result<Option<String>> {
         let profile = self.profile_editor.draft.clone();
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("Joystick Manager profile", &["json"])
+            .add_filter("PerifeMngr profile", &["json"])
             .set_file_name(format!("{}.json", profile.name))
             .save_file()
         else {

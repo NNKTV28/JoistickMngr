@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, CornerRadius, Frame, Margin, RichText, Sense, Stroke, Ui, vec2};
 
-use crate::app::{JoystickManagerApp, Page};
+use crate::app::{Page, PerifeMngrApp};
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingAvailability;
 use crate::localization::{tr, tr_format};
@@ -12,7 +12,7 @@ use crate::updater::UpdateState;
 
 const ACTIVE_PROFILE_CARD_HEIGHT: f32 = 96.0;
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_navigation(&mut self, ui: &mut Ui) {
         show_brand(ui);
         self.show_navigation_link(ui, "Overview", Page::Overview);
@@ -118,7 +118,7 @@ fn show_brand(ui: &mut Ui) {
         let (logo_rect, _) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
         paint_crosshair_logo(ui, logo_rect);
         ui.label(
-            RichText::new(tr("JOYSTICK MNGR"))
+            RichText::new(tr("PERIFE MNGR"))
                 .font(condensed_font(21.0))
                 .extra_letter_spacing(1.5),
         );

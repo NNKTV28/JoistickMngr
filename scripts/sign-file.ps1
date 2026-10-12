@@ -31,7 +31,7 @@ $signTool = Find-SignTool
     /fd SHA256 `
     /tr "http://timestamp.digicert.com" `
     /td SHA256 `
-    /d "Joystick Manager" `
+    /d "PerifeMngr" `
     /du "https://nikicoding.com" `
     $FilePath
 if ($LASTEXITCODE -ne 0) { throw "Signing failed for $FilePath" }

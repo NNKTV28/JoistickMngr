@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-    Builds dist\JoystickManager-Setup-<version>.exe with Inno Setup.
+    Builds dist\PerifeMngr-Setup-<version>.exe with Inno Setup.
 .DESCRIPTION
-    Expects target\release\JoystickManager.exe to be built (and signed) already.
+    Expects target\release\PerifeMngr.exe to be built (and signed) already.
     When SIGNING_CERTIFICATE_PATH is set, the installer and its uninstaller are signed too.
 #>
 param(
@@ -32,7 +32,7 @@ if ($env:SIGNING_CERTIFICATE_PATH) {
     # Inno Setup writes a double quote as $q inside sign tool commands and replaces $f with the quoted file path.
     $compilerArguments += "/Snikicoding=pwsh -NoProfile -ExecutionPolicy Bypass -File `$q$signScript`$q -FilePath `$f"
 }
-$compilerArguments += (Join-Path $repositoryRoot "installer\JoystickManager.iss")
+$compilerArguments += (Join-Path $repositoryRoot "installer\PerifeMngr.iss")
 
 & (Find-InnoSetupCompiler) @compilerArguments
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed." }

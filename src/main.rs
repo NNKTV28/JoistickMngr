@@ -43,7 +43,7 @@ use std::sync::{Arc, Mutex};
 
 use eframe::egui;
 
-use app::{BackgroundServices, JoystickManagerApp, WINDOW_TITLE};
+use app::{BackgroundServices, PerifeMngrApp, WINDOW_TITLE};
 use app_state::{AppState, SharedAppState};
 use autostart::MINIMIZED_ARGUMENT;
 use device_scanner::DeviceScannerService;
@@ -66,6 +66,7 @@ fn main() -> eframe::Result {
         return Ok(());
     };
 
+    storage::move_legacy_application_data();
     let app_state: SharedAppState = Arc::new(Mutex::new(AppState::load()));
     localization::set_current_language(app_state.lock().unwrap().settings.language);
     let services = start_background_services(&app_state);
@@ -78,7 +79,7 @@ fn main() -> eframe::Result {
         WINDOW_TITLE,
         build_native_options(starts_visible),
         Box::new(move |creation_context| {
-            let app = JoystickManagerApp::new(creation_context, app_state, services, single_instance, starts_visible);
+            let app = PerifeMngrApp::new(creation_context, app_state, services, single_instance, starts_visible);
             Ok(Box::new(app))
         }),
     )

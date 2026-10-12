@@ -15,14 +15,13 @@ pub struct SingleInstanceGuard {
 pub fn acquire_single_instance() -> Option<SingleInstanceGuard> {
     // SAFETY: named kernel objects with static names; handles are closed in Drop.
     unsafe {
-        let instance_mutex = CreateMutexW(None, true, w!("Local\\NikiCoding.JoystickManager.Instance")).ok()?;
+        let instance_mutex = CreateMutexW(None, true, w!("Local\\NikiCoding.PerifeMngr.Instance")).ok()?;
         if GetLastError() == ERROR_ALREADY_EXISTS {
             let _ = CloseHandle(instance_mutex);
             signal_running_instance_to_show();
             return None;
         }
-        let show_window_event =
-            CreateEventW(None, false, false, w!("Local\\NikiCoding.JoistickManager.ShowWindow")).ok()?;
+        let show_window_event = CreateEventW(None, false, false, w!("Local\\NikiCoding.PerifeMngr.ShowWindow")).ok()?;
         Some(SingleInstanceGuard {
             instance_mutex: instance_mutex.0 as usize,
             show_window_event: show_window_event.0 as usize,
@@ -33,11 +32,9 @@ pub fn acquire_single_instance() -> Option<SingleInstanceGuard> {
 fn signal_running_instance_to_show() {
     // SAFETY: the event is opened only to set it and closed right after.
     unsafe {
-        if let Ok(show_window_event) = OpenEventW(
-            EVENT_MODIFY_STATE,
-            false,
-            w!("Local\\NikiCoding.JoistickManager.ShowWindow"),
-        ) {
+        if let Ok(show_window_event) =
+            OpenEventW(EVENT_MODIFY_STATE, false, w!("Local\\NikiCoding.PerifeMngr.ShowWindow"))
+        {
             let _ = SetEvent(show_window_event);
             let _ = CloseHandle(show_window_event);
         }

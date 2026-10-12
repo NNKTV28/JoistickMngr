@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText, Ui};
 
-use crate::app::JoystickManagerApp;
+use crate::app::PerifeMngrApp;
 use crate::calibration::{AxisCalibration, CalibrationStore};
 use crate::input_reader::{ControllerUpdate, InputReaderService};
 use crate::known_devices::DeviceKind;
@@ -131,7 +131,7 @@ fn record_centred_axes(
     }
 }
 
-impl JoystickManagerApp {
+impl PerifeMngrApp {
     pub(crate) fn show_drift_card(&mut self, ui: &mut Ui) {
         self.finish_drift_measurement_when_due();
         let calibration = self.app_state.lock().unwrap().calibration.clone();
