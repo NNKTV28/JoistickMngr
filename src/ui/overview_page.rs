@@ -8,6 +8,7 @@ use crate::driver_status::{DriverHealth, evaluate_driver_health};
 use crate::known_devices::{DeviceKind, KnownDevice};
 use crate::lighting_effects::setting_showing_current_frame;
 use crate::localization::{tr, tr_format};
+use crate::product_images::ProductPhoto;
 use crate::profiles::LightingSetting;
 use crate::ui::widgets::*;
 
@@ -37,7 +38,9 @@ impl PerifeMngrApp {
         }
 
         self.show_device_cards(ui, &connected_devices);
-        ui.add_space(18.0);
+        ui.add_space(6.0);
+        self.show_peripheral_cards(ui);
+        ui.add_space(12.0);
         self.show_live_axes_card(ui, &connected_devices);
     }
 
@@ -47,7 +50,7 @@ impl PerifeMngrApp {
         for row_kinds in DeviceKind::ALL.chunks(column_count) {
             let row_photos: Vec<Option<TextureHandle>> = row_kinds
                 .iter()
-                .map(|device_kind| self.product_photo(ui.ctx(), *device_kind))
+                .map(|device_kind| self.product_photo(ui.ctx(), ProductPhoto::of_device_kind(*device_kind)))
                 .collect();
             ui.columns(column_count, |columns| {
                 for ((column, device_kind), photo) in columns.iter_mut().zip(row_kinds).zip(&row_photos) {

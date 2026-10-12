@@ -1,16 +1,18 @@
 //! Audio page: one card per speaker, headset or microphone with volume, mute, a live level meter
 //! and the default device switch for each of its outputs and inputs.
 
-use eframe::egui::{self, RichText, Slider, Ui};
+use eframe::egui::{self, RichText, Slider, TextureHandle, Ui, vec2};
 
 use crate::app::PerifeMngrApp;
 use crate::audio_devices::{AudioDirection, AudioEndpoint, AudioService};
 use crate::localization::tr;
+use crate::product_images::ProductPhoto;
 use crate::theme::*;
 use crate::ui::widgets::*;
 
 const LEVEL_METER_WIDTH: f32 = 150.0;
 const VOLUME_SLIDER_WIDTH: f32 = 180.0;
+const PHOTO_WIDTH: f32 = 240.0;
 
 impl PerifeMngrApp {
     pub(crate) fn show_audio_page(&mut self, ui: &mut Ui) {
@@ -29,7 +31,8 @@ impl PerifeMngrApp {
             return;
         }
         for (device_name, device_endpoints) in group_by_device(&endpoints) {
-            show_device_card(ui, device_name, &device_endpoints, &self.services.audio);
+            let photo = ProductPhoto::matching_name(device_name).and_then(|photo| self.product_photo(ui.ctx(), photo));
+            show_device_card(ui, device_name, &device_endpoints, photo.as_ref(), &self.services.audio);
             ui.add_space(12.0);
         }
     }
@@ -47,21 +50,40 @@ fn group_by_device(endpoints: &[AudioEndpoint]) -> Vec<(&str, Vec<&AudioEndpoint
     groups
 }
 
-fn show_device_card(ui: &mut Ui, device_name: &str, endpoints: &[&AudioEndpoint], audio: &AudioService) {
+fn show_device_card(
+    ui: &mut Ui,
+    device_name: &str,
+    endpoints: &[&AudioEndpoint],
+    photo: Option<&TextureHandle>,
+    audio: &AudioService,
+) {
     card(ui, |ui| {
         card_title(ui, device_name);
         ui.add_space(6.0);
-        egui::Grid::new(("audio-device", device_name))
-            .num_columns(6)
-            .spacing([16.0, 10.0])
-            .min_row_height(32.0)
-            .show(ui, |ui| {
-                for endpoint in endpoints {
-                    show_endpoint_row(ui, endpoint, audio);
-                    ui.end_row();
-                }
-            });
+        ui.horizontal_top(|ui| {
+            if photo.is_some() {
+                ui.allocate_ui(vec2(PHOTO_WIDTH, 0.0), |ui| {
+                    ui.set_width(PHOTO_WIDTH);
+                    device_preview(ui, photo, None, device_name);
+                });
+                ui.add_space(18.0);
+            }
+            ui.vertical(|ui| show_endpoint_grid(ui, device_name, endpoints, audio));
+        });
     });
+}
+
+fn show_endpoint_grid(ui: &mut Ui, device_name: &str, endpoints: &[&AudioEndpoint], audio: &AudioService) {
+    egui::Grid::new(("audio-device", device_name))
+        .num_columns(6)
+        .spacing([16.0, 10.0])
+        .min_row_height(32.0)
+        .show(ui, |ui| {
+            for endpoint in endpoints {
+                show_endpoint_row(ui, endpoint, audio);
+                ui.end_row();
+            }
+        });
 }
 
 fn show_endpoint_row(ui: &mut Ui, endpoint: &AudioEndpoint, audio: &AudioService) {

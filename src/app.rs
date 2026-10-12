@@ -13,8 +13,9 @@ use crate::input_reader::InputReaderService;
 use crate::known_devices::DeviceKind;
 use crate::lighting::LightingService;
 use crate::localization::tr;
+use crate::logitech_mouse::LogitechMouseService;
 use crate::mapping_engine::MappingEngine;
-use crate::product_images::ProductImages;
+use crate::product_images::{ProductImages, ProductPhoto};
 use crate::settings::AppSettings;
 use crate::single_instance::SingleInstanceGuard;
 use crate::system_actions::bring_window_to_front;
@@ -26,6 +27,7 @@ use crate::ui::mapping_page::MappingEditor;
 use crate::ui::profiles_page::ProfileEditor;
 use crate::ui::widgets::Tone;
 use crate::updater::UpdateService;
+use crate::usb_peripherals::UsbPeripheralScanner;
 use crate::windows_update::WindowsUpdateService;
 
 pub const WINDOW_TITLE: &str = "PerifeMngr";
@@ -40,6 +42,7 @@ type TrayRequestQueue = Arc<Mutex<Vec<TrayRequest>>>;
 pub enum Page {
     Overview,
     Audio,
+    Mouse,
     Device(DeviceKind),
     Lighting,
     InputTester,
@@ -52,7 +55,7 @@ impl Page {
     fn shows_live_input(self) -> bool {
         matches!(
             self,
-            Page::Overview | Page::Audio | Page::InputTester | Page::KeyMapping | Page::Lighting
+            Page::Overview | Page::Audio | Page::Mouse | Page::InputTester | Page::KeyMapping | Page::Lighting
         )
     }
 }
@@ -72,6 +75,8 @@ pub struct StatusBanner {
 
 pub struct BackgroundServices {
     pub audio: AudioService,
+    pub logitech_mouse: LogitechMouseService,
+    pub usb_peripherals: UsbPeripheralScanner,
     pub mapping_engine: MappingEngine,
     pub device_scanner: DeviceScannerService,
     pub input_reader: InputReaderService,
@@ -89,6 +94,8 @@ pub struct PerifeMngrApp {
     pub(crate) mapping_editor: MappingEditor,
     pub(crate) drift_measurement: Option<DriftMeasurement>,
     pub(crate) show_raw_input: bool,
+    /// DPI picked on the mouse page but not applied yet, while the slider is dragged.
+    pub(crate) mouse_dpi_draft: Option<u16>,
     pub(crate) profile_editor: ProfileEditor,
     pub(crate) autostart_registered: bool,
     product_images: ProductImages,
@@ -126,6 +133,7 @@ impl PerifeMngrApp {
             mapping_editor: MappingEditor::default(),
             drift_measurement: None,
             show_raw_input: false,
+            mouse_dpi_draft: None,
             profile_editor,
             app_state,
             services,
@@ -154,13 +162,9 @@ impl PerifeMngrApp {
         self.current_page = page;
     }
 
-    /// Logitech's product photo of the device, once downloaded.
-    pub(crate) fn product_photo(
-        &mut self,
-        egui_context: &egui::Context,
-        device_kind: DeviceKind,
-    ) -> Option<TextureHandle> {
-        self.product_images.texture(egui_context, device_kind)
+    /// The manufacturer's product photo of the device, once downloaded.
+    pub(crate) fn product_photo(&mut self, egui_context: &egui::Context, photo: ProductPhoto) -> Option<TextureHandle> {
+        self.product_images.texture(egui_context, photo)
     }
 
     /// Changes settings and saves them right away, reporting a failed save in the status banner.
@@ -243,6 +247,7 @@ impl PerifeMngrApp {
         match self.current_page {
             Page::Overview => self.show_overview_page(ui),
             Page::Audio => self.show_audio_page(ui),
+            Page::Mouse => self.show_mouse_page(ui),
             Page::Device(device_kind) => self.show_device_page(ui, device_kind),
             Page::Lighting => self.show_lighting_page(ui),
             Page::InputTester => self.show_input_page(ui),

@@ -1,10 +1,19 @@
-# Joystick Manager
+# PerifeMngr
 
-A native Windows app for managing a flight sim setup: the **Logitech X56 H.O.T.A.S.** stick and throttle
-and the **Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https://github.com/emilk/egui).
+A native Windows app for managing PC peripherals in one place: mice, keyboards, headsets, microphones and
+speakers, plus a full flight sim setup with the **Logitech X56 H.O.T.A.S.** stick and throttle and the
+**Saitek Pro Flight Rudder Pedals**. Written in Rust with [egui](https://github.com/emilk/egui).
+Formerly called Joystick Manager.
 
 ## Features
 
+- **Peripherals overview** – a card with the product photo and key facts for every supported peripheral:
+  Logitech G309 mouse, Razer Kraken V4 X headset, HyperX QuadCast S microphone, Vieta Pro Astra speaker and
+  Newskill Serike V2 keyboard, next to the HOTAS.
+- **Audio** – volume, mute, a live level meter and the default device for every speaker, headset and
+  microphone, grouped by hardware.
+- **Logitech mouse** – battery, DPI and report rate of Logitech mice over the HID++ protocol, without
+  Logitech's software.
 - **Overview** – connection state, VID:PID, serial number, driver version and current colour for every device.
 - **Drivers** – every USB interface with its driver provider, version, date and INF, compared against the
   latest Logitech release. Searches Windows Update for newer signed drivers and installs them in one click.
@@ -41,7 +50,7 @@ See [ROADMAP.md](ROADMAP.md) for what is planned next.
 
 ## Install
 
-Download `JoystickManager-Setup-x.y.z.exe` from the
+Download `PerifeMngr-Setup-x.y.z.exe` from the
 [latest release](https://github.com/NNKTV28/JoistickMngr/releases/latest) and run it. The installer adds a
 Start menu entry (so the app shows up in Windows search) and can register the app to start when you sign in.
 
@@ -60,7 +69,7 @@ To build the installer locally, install [Inno Setup 6](https://jrsoftware.org/is
 
 ```powershell
 ./scripts/prepare-signing-certificate.ps1
-./scripts/sign-file.ps1 -FilePath target/release/JoystickManager.exe
+./scripts/sign-file.ps1 -FilePath target/release/PerifeMngr.exe
 ./scripts/build-installer.ps1 -Version 0.1.0
 ```
 

@@ -1,6 +1,6 @@
 [package]
 name = "perife-mngr"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 description = "Manage Logitech X56 HOTAS and Saitek rudder pedals on Windows"
 authors = ["NNKtv28 <support@nikicoding.com>"]
@@ -16,7 +16,7 @@ path = "src/main.rs"
 anyhow = "1.0.104"
 eframe = { version = "0.36", default-features = false, features = ["glow", "default_fonts"] }
 hidapi = "2"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 libloading = "0.9"
 rfd = "0.17.2"
 serde = { version = "1.0.229", features = ["derive"] }

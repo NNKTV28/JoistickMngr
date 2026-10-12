@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Joystick Manager</title>
-  <meta name="description" content="Free, open-source Windows app for the Logitech X56 H.O.T.A.S. and Saitek Pro Flight Rudder Pedals: drivers, RGB lighting, key mapping, Hall effect keys, stick drift correction and profiles.">
+  <title>PerifeMngr</title>
+  <meta name="description" content="Free, open-source Windows app for PC peripherals: audio devices, Logitech mice, and the Logitech X56 H.O.T.A.S. with rudder pedals. Drivers, RGB lighting, key mapping, Hall effect keys, stick drift correction and profiles.">
   <link rel="icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -215,13 +215,13 @@
 <body>
   <header class="site-header">
     <div class="container">
-      <a class="brand" href="#top" aria-label="Joystick Manager home">
+      <a class="brand" href="#top" aria-label="PerifeMngr home">
         <svg viewBox="0 0 32 32" aria-hidden="true">
           <circle cx="16" cy="16" r="11" fill="none" stroke="#f2a33a" stroke-width="2.4"/>
           <path d="M16 1v8M16 23v8M1 16h8M23 16h8" stroke="#f2a33a" stroke-width="2.4" stroke-linecap="round"/>
           <circle cx="16" cy="16" r="2.6" fill="#f2a33a"/>
         </svg>
-        Joystick Mngr
+        Perife Mngr
       </a>
       <nav class="site-nav" aria-label="Sections">
         <a href="#features">Features</a>
@@ -236,10 +236,11 @@
   <main id="top">
     <div class="container hero">
       <p class="eyebrow">Free &amp; open source · Windows 10 / 11</p>
-      <h1>One cockpit app for your <span>X56 HOTAS</span> and rudder pedals.</h1>
+      <h1>One app for your <span>peripherals</span>, from mouse to HOTAS.</h1>
       <p class="lead">
-        Joystick Manager checks drivers, sets the RGB lighting, maps every button and axis to keys, mouse or a
-        virtual Xbox / PlayStation controller, and fixes stick drift. Built in Rust, small and fast.
+        PerifeMngr controls your headset, microphone and speaker volumes, your Logitech mouse's DPI and report
+        rate, and your flight sim gear: drivers, RGB lighting, key mapping and stick drift. Formerly Joystick
+        Manager. Built in Rust, small and fast.
       </p>
       <div class="hero-actions">
         <a class="button primary" id="download-button" href="https://github.com/NNKTV28/JoistickMngr/releases/latest">
@@ -249,17 +250,29 @@
       </div>
       <p class="release-note" id="release-note">Latest release on GitHub · MIT licence</p>
       <img class="screenshot" src="images/overview.png" width="1280" height="820"
-           alt="Joystick Manager overview page showing the X56 stick, X56 throttle and rudder pedals with their drivers and lighting">
+           alt="PerifeMngr overview page showing the X56 stick, X56 throttle and rudder pedals with their drivers and lighting">
     </div>
 
     <section id="features">
       <div class="container">
         <h2>Features</h2>
         <p class="section-intro">
-          Supports the Logitech X56 H.O.T.A.S. stick and throttle and the Saitek Pro Flight Rudder Pedals.
+          Supports audio devices, Logitech mice, the Logitech X56 H.O.T.A.S. stick and throttle and the Saitek
+          Pro Flight Rudder Pedals.
           Everything runs on your PC; no account, no telemetry.
         </p>
         <div class="feature-grid">
+          <article class="feature">
+            <span class="tag">AUDIO</span>
+            <h3>Headsets, microphones and speakers</h3>
+            <p>Volume, mute, a live level meter and the Windows default device for every audio device, grouped
+              by hardware.</p>
+          </article>
+          <article class="feature">
+            <span class="tag">MOUSE</span>
+            <h3>Logitech mice</h3>
+            <p>Battery, DPI and report rate of Logitech mice such as the G309, without Logitech's software.</p>
+          </article>
           <article class="feature">
             <span class="tag">DEVICES</span>
             <h3>Overview and drivers</h3>
@@ -341,7 +354,7 @@
         <h2>Install</h2>
         <p class="section-intro">Windows 10 or 11, 64-bit.</p>
         <ol class="steps">
-          <li>Download <code>JoystickManager-Setup-x.y.z.exe</code> from the
+          <li>Download <code>PerifeMngr-Setup-x.y.z.exe</code> from the
             <a href="https://github.com/NNKTV28/JoistickMngr/releases/latest">latest release</a>.</li>
           <li>Run the installer. It adds a Start menu entry, so the app shows up in Windows search, and can start the
             app when you sign in.</li>
@@ -357,7 +370,7 @@
         <h2>Code signing policy</h2>
         <div class="policy">
           <h3>What is signed</h3>
-          <p>The application (<code>JoystickManager.exe</code>) and its installer are signed in the
+          <p>The application (<code>PerifeMngr.exe</code>) and its installer are signed in the
             <a href="https://github.com/NNKTV28/JoistickMngr/actions">GitHub Actions</a> release workflow, built
             straight from the tagged source in this repository. Nothing is signed from a developer machine.</p>
           <p>The project is applying for free code signing for open-source projects provided by
@@ -379,13 +392,13 @@
       <div class="container">
         <h2>Privacy policy</h2>
         <div class="policy">
-          <p>Joystick Manager collects no personal data, has no account and sends no telemetry or analytics. It
+          <p>PerifeMngr collects no personal data, has no account and sends no telemetry or analytics. It
             only connects to other systems in the cases below, each needed for a feature you can see in the app.</p>
           <ul>
             <li><strong>Update check</strong> – asks the GitHub API for the latest release and, when you install it,
               downloads the installer from GitHub. Can be turned off in Settings.</li>
-            <li><strong>Product photos</strong> – downloads the device pictures shown on the overview from
-              Logitech's public product image server.</li>
+            <li><strong>Product photos</strong> – downloads the device pictures shown on the overview from the
+              manufacturers' and retailers' public image servers (Logitech, Razer, HyperX, Newskill, MediaMarkt).</li>
             <li><strong>Driver search</strong> – when you click <em>Check for driver updates</em>, asks Windows Update
               for drivers for the connected devices.</li>
           </ul>

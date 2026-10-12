@@ -22,10 +22,18 @@
 - X56 throttle mode switch read from the throttle's own mode report
 - Hall effect keys: adjustable actuation point, rapid trigger and continuous rapid trigger
 
+- Renamed to PerifeMngr, with settings, autostart and updates carried over from Joystick Manager
+- Audio page: volume, mute, level meter and default device for speakers, headsets and microphones
+- Logitech mice over HID++: battery, DPI and report rate (tested on the G309 LIGHTSPEED)
+- Peripheral cards with product photos on the overview
+
 ## Planned
 
 Next in line, roughly in this order.
 
+- **Microphone and headset lighting** – RGB for the HyperX QuadCast S and the Razer Kraken V4 X.
+- **Rename the repository** – move the GitHub repository and homepage to the PerifeMngr name once the code
+  signing application is settled.
 - **Macros** – one button sends a sequence of keys with delays.
 - **Hide the real HOTAS from games** – use HidHide so games only see the virtual controller and never get
   input twice.
@@ -35,6 +43,9 @@ Next in line, roughly in this order.
 
 Ideas that are wanted but not scheduled yet.
 
+- **Keyboard lighting** – Newskill does not publish the Serike V2's lighting protocol; it needs to be
+  worked out from the official software first.
+- **Mouse buttons and onboard profiles** – remap buttons and edit the profiles stored in Logitech mice.
 - **Combine axes** – treat both toe brakes or both throttles as one axis.
 - **Controller order** – keep the order Windows reports controllers in stable for games that bind by position.
 - **Reactive lighting** – colour per mode, flash on button presses, colour that follows the throttle.

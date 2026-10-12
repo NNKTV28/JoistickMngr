@@ -21,6 +21,8 @@ mod layers;
 mod lighting;
 mod lighting_effects;
 mod localization;
+mod logitech_hidpp;
+mod logitech_mouse;
 mod mapping_engine;
 mod mapping_presets;
 mod press_styles;
@@ -35,6 +37,7 @@ mod thread_priority;
 mod tray;
 mod ui;
 mod updater;
+mod usb_peripherals;
 mod usb_power;
 mod version_numbers;
 mod virtual_gamepad;
@@ -51,8 +54,10 @@ use autostart::MINIMIZED_ARGUMENT;
 use device_scanner::DeviceScannerService;
 use input_reader::InputReaderService;
 use lighting::LightingService;
+use logitech_mouse::LogitechMouseService;
 use mapping_engine::MappingEngine;
 use updater::UpdateService;
+use usb_peripherals::UsbPeripheralScanner;
 use windows_update::WindowsUpdateService;
 
 const REGISTER_AUTOSTART_ARGUMENT: &str = "--register-autostart";
@@ -107,6 +112,8 @@ fn start_background_services(app_state: &SharedAppState) -> BackgroundServices {
     let lighting = LightingService::start();
     BackgroundServices {
         audio: AudioService::start(),
+        logitech_mouse: LogitechMouseService::start(),
+        usb_peripherals: UsbPeripheralScanner::start(),
         mapping_engine: MappingEngine::start(Arc::clone(app_state), &input_reader, lighting.clone()),
         device_scanner: DeviceScannerService::start(),
         input_reader,

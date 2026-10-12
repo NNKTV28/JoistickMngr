@@ -10,6 +10,7 @@ use crate::lighting_effects::{
     LightingEffectKind, MAXIMUM_CYCLE_SECONDS, MINIMUM_CYCLE_SECONDS, setting_showing_current_frame,
 };
 use crate::localization::{tr, tr_format};
+use crate::product_images::ProductPhoto;
 use crate::profiles::{LightingSetting, Profile, RgbColor};
 use crate::system_actions::open_in_default_handler;
 use crate::theme::*;
@@ -140,7 +141,7 @@ impl PerifeMngrApp {
         for row_units in LIGHTING_UNITS.chunks(column_count) {
             let row_photos: Vec<Option<TextureHandle>> = row_units
                 .iter()
-                .map(|device_kind| self.product_photo(ui.ctx(), *device_kind))
+                .map(|device_kind| self.product_photo(ui.ctx(), ProductPhoto::of_device_kind(*device_kind)))
                 .collect();
             ui.columns(column_count, |columns| {
                 for ((column, device_kind), photo) in columns.iter_mut().zip(row_units).zip(&row_photos) {

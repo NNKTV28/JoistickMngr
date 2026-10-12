@@ -44,6 +44,7 @@ impl PerifeMngrApp {
                 self.open_page(page);
             }
         }
+        self.show_mouse_navigation_link(ui);
 
         ui.add_space(14.0);
         caption(ui, "Tools");
@@ -67,6 +68,16 @@ impl PerifeMngrApp {
         let label = tr_format("Update {} available", &[&update.version]);
         if navigation_item(ui, &label, false, Some(ACCENT_AMBER)).clicked() {
             self.open_page(Page::Settings);
+        }
+    }
+
+    /// The Logitech mouse appears among the devices while it answers.
+    fn show_mouse_navigation_link(&mut self, ui: &mut Ui) {
+        let Some(mouse) = self.services.logitech_mouse.status() else {
+            return;
+        };
+        if navigation_item(ui, &mouse.name, self.current_page == Page::Mouse, Some(SUCCESS_DOT)).clicked() {
+            self.open_page(Page::Mouse);
         }
     }
 
